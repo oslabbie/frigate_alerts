@@ -1,0 +1,18 @@
+{
+    "name": "cctv_telegram",
+    "version": "1.0.0",
+    "main": "index.js",
+    "scripts": {
+        "test": "echo \"Error: no test specified\" && exit 1"
+    },
+    "author": "",
+    "license": "ISC",
+    "description": "",
+    "dependencies": {
+        "form-data": "^4.0.0",
+        "axios": "^1.7.9",
+        "dotenv": "^16.4.7",
+        "mqtt": "^5.10.3",
+        "node-fetch": "^2.7.0"
+    }
+}
