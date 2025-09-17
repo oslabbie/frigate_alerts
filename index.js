@@ -112,12 +112,12 @@ const fetchFrigateEvents = async () => {
             await new Promise((r) => setTimeout(r, 5000)); // Wait 5 seconds to ensure clips are ready
             for (const event of events) {
                 if (!lastEvent || event.id === lastEvent.id) break;
-                if (!isWithinAlertTimeframe(event)) break;
-                if (event.start_time <= lastTimestamp) break;
+                if (!isWithinAlertTimeframe(event)) continue;
+                if (event.start_time < lastTimestamp) continue;
                 processEvent(event);
             }
             lastEvent = events[0];
-            lastTimestamp = lastEvent.start_time || Date.now();
+            lastTimestamp = Date.now() / 1000 - 10 * 60; // 10 minutes ago
         }
     } catch (error) {
         console.error(
@@ -179,10 +179,10 @@ async function downloadVideo(event) {
         await new Promise(
             (r) =>
                 setTimeout(() => {
-                    event.end_time = event.start_time + 5;
+                    event.end_time = event.start_time + 17;
                     r();
                 }),
-            7000
+            20000
         );
     const url = `${FRIGATE_API_URL}/${event.camera}/start/${event.start_time}/end/${event.end_time}/clip.mp4`;
     const snapshotResponse = await axios.get(url, {
