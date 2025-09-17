@@ -133,6 +133,8 @@ async function processEvent(event) {
 📌 Object: ${event.label}
 ⏳ Time: ${new Date(event.start_time * 1000).toLocaleString()}`;
 
+    if (process.env.WEBHOOK_TRIGGER) triggerWebhook(event);
+
     const send = async () => {
         const videoRes = await downloadVideo(event);
         const sentVideo = await sendMediaFileToTelegram(
@@ -208,6 +210,29 @@ async function downloadThumbnail(event) {
     });
     const buffer = Buffer.from(snapshotResponse.data, "binary");
     return buffer;
+}
+
+/**
+ * Trigger a webhook for the given event.
+ * TODO: implement authentication, retries, etc.
+ * @param {*} event
+ */
+async function triggerWebhook(event) {
+    const url = process.env.WEBHOOK_TRIGGER;
+    const payload = {
+        event_id: event.id,
+        camera: event.camera,
+        label: event.label,
+        start_time: event.start_time,
+        end_time: event.end_time,
+    };
+
+    try {
+        await axios.post(url, payload);
+        console.log("✅ Webhook triggered successfully");
+    } catch (error) {
+        console.error("❌ Error triggering webhook:", error.message);
+    }
 }
 
 // Poll Frigate every 10 seconds
