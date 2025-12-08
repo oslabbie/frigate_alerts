@@ -1,0 +1,79 @@
+{
+    "frigate_api_url": "http://frigate:5000/api",
+    "telegram_bot_token": "YOUR_BOT_TOKEN_HERE",
+    "poll_interval_seconds": 10,
+    "webhook_url": null,
+
+    "default_schedule": {
+        "start_time": "00:00",
+        "end_time": "23:59",
+        "always_send": false
+    },
+
+    "groups": {
+        "family": {
+            "chat_id": "-123456789",
+            "enabled": true,
+            "always_send": false,
+            "schedule": {
+                "start_time": "18:00",
+                "end_time": "08:00"
+            },
+            "description": "Family group - evening/night alerts only"
+        },
+        "security": {
+            "chat_id": "-987654321",
+            "enabled": true,
+            "always_send": true,
+            "description": "Security team - receives ALL alerts 24/7"
+        },
+        "personal": {
+            "chat_id": "123456789",
+            "enabled": true,
+            "always_send": false,
+            "schedule": {
+                "start_time": "22:00",
+                "end_time": "06:00"
+            },
+            "description": "Personal DM - night alerts only"
+        }
+    },
+
+    "default_groups": ["family"],
+
+    "cameras": {
+        "front_door": {
+            "schedule": {
+                "start_time": "17:00",
+                "end_time": "07:00"
+            },
+            "always_send": false,
+            "groups": ["family", "security", "personal"],
+            "labels": ["person", "car"],
+            "group_schedules": {
+                "family": {
+                    "schedule": {
+                        "start_time": "20:00",
+                        "end_time": "06:00"
+                    },
+                    "always_send": false
+                },
+                "personal": {
+                    "always_send": true
+                }
+            }
+        },
+        "backyard": {
+            "schedule": {
+                "start_time": "22:00",
+                "end_time": "05:00"
+            },
+            "always_send": false,
+            "groups": ["security"]
+        },
+        "garage": {
+            "always_send": true,
+            "groups": ["family", "personal"]
+        }
+    }
+}
