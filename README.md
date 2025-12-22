@@ -143,6 +143,37 @@ node index.js
 pm2 start index.js --name frigate-alerts
 ```
 
+## Installing as a Service (Linux)
+
+The included `install` script makes it easy to set up Frigate Alerts as a systemd service:
+
+```bash
+# Install and start the service
+sudo ./install
+
+# Check service status
+./install status
+
+# View live logs
+./install logs
+```
+
+### Available Commands
+
+| Command | Description |
+|---------|-------------|
+| `./install` | Install and start as a systemd service |
+| `./install status` | Show service status |
+| `./install start` | Start the service |
+| `./install stop` | Stop the service |
+| `./install restart` | Restart the service |
+| `./install enable` | Enable service (start on boot) |
+| `./install disable` | Disable service (won't start on boot) |
+| `./install logs` | View live service logs |
+| `./install uninstall` | Remove the service |
+
+**Note:** Most commands require `sudo` as they interact with systemd.
+
 ## Example Use Cases
 
 ### 1. Different Groups for Different Areas
