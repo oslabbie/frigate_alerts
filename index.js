@@ -6,8 +6,8 @@ const {
     shouldAlertAnyGroup,
     isLabelAllowed,
 } = require("./config");
-const { sendAlertToGroups } = require("./telegram");
-const { fetchEvents, downloadMedia, triggerWebhook } = require("./frigate");
+const { sendMediaAlertToGroups, sendTextAlertToGroups } = require("./telegram");
+const { fetchEvents, getMediaDownloaders, triggerWebhook } = require("./frigate");
 
 let lastEvent;
 let lastTimestamp = 0;
@@ -71,13 +71,21 @@ ${scheduleInfo}`;
     triggerWebhook(event);
 
     const send = async () => {
-        const media = await downloadMedia(event);
-        if (media) {
-            await sendAlertToGroups(event, media.buffer, message, media.fileName);
-        } else {
-            console.error("❌ Failed to send any media for event:", event.id);
-            await sendAlertToGroups(event, null, message + "\n⚠️ (No media available)", null);
+        const downloaders = getMediaDownloaders(event);
+
+        for (const { download, fileName, label } of downloaders) {
+            try {
+                const buffer = await download();
+                const sent = await sendMediaAlertToGroups(event, buffer, message, fileName);
+                if (sent) return;
+                console.log(`⚠️ ${label} downloaded but Telegram rejected it, trying next...`);
+            } catch (e) {
+                console.log(`⚠️ ${label} download failed after retries, trying next...`);
+            }
         }
+
+        console.error("❌ All media types failed for event:", event.id);
+        await sendTextAlertToGroups(event, message + "\n⚠️ (No media available)");
     };
 
     if (event.has_clip && !event.end_time) {

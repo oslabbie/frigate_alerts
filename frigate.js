@@ -7,6 +7,8 @@ const {
     getGroupsForCamera,
 } = require("./config");
 
+const MIN_BUFFER_SIZE = 1024; // 1KB — anything smaller is likely an error response
+
 /**
  * Retry an async function with increasing delays
  * @param {Function} fn - async function to retry
@@ -17,12 +19,16 @@ async function downloadWithRetry(fn, label) {
     let lastError;
     for (let attempt = 1; attempt <= MEDIA_RETRY_ATTEMPTS; attempt++) {
         try {
-            return await fn();
+            const buffer = await fn();
+            if (buffer.length < MIN_BUFFER_SIZE) {
+                throw new Error(`Response too small (${buffer.length} bytes), likely not valid media`);
+            }
+            return buffer;
         } catch (e) {
             lastError = e;
             if (attempt < MEDIA_RETRY_ATTEMPTS) {
                 const delay = MEDIA_RETRY_DELAY_MS * attempt;
-                console.log(`⏳ ${label} attempt ${attempt}/${MEDIA_RETRY_ATTEMPTS} failed, retrying in ${delay / 1000}s...`);
+                console.log(`⏳ ${label} attempt ${attempt}/${MEDIA_RETRY_ATTEMPTS} failed (${e.message}), retrying in ${delay / 1000}s...`);
                 await new Promise((r) => setTimeout(r, delay));
             }
         }
@@ -81,33 +87,28 @@ async function downloadThumbnail(event) {
 }
 
 /**
- * Download media with retry, falling back through video > snapshot > thumbnail
+ * Get ordered list of media download attempts for an event
  * @param {Object} event
- * @returns {Promise<{buffer: Buffer, fileName: string}|null>}
+ * @returns {Array<{download: Function, fileName: string, label: string}>}
  */
-async function downloadMedia(event) {
-    try {
-        const buffer = await downloadWithRetry(() => downloadVideo(event), `Video [${event.id}]`);
-        return { buffer, fileName: "video.mp4" };
-    } catch (e) {
-        console.log("⚠️ Video download failed after retries, trying snapshot...");
-    }
-
-    try {
-        const buffer = await downloadWithRetry(() => downloadSnapshot(event), `Snapshot [${event.id}]`);
-        return { buffer, fileName: "snapshot.jpg" };
-    } catch (e) {
-        console.log("⚠️ Snapshot download failed after retries, trying thumbnail...");
-    }
-
-    try {
-        const buffer = await downloadWithRetry(() => downloadThumbnail(event), `Thumbnail [${event.id}]`);
-        return { buffer, fileName: "thumbnail.jpg" };
-    } catch (e) {
-        console.log("⚠️ Thumbnail download failed after retries");
-    }
-
-    return null;
+function getMediaDownloaders(event) {
+    return [
+        {
+            download: () => downloadWithRetry(() => downloadVideo(event), `Video [${event.id}]`),
+            fileName: "video.mp4",
+            label: "Video",
+        },
+        {
+            download: () => downloadWithRetry(() => downloadSnapshot(event), `Snapshot [${event.id}]`),
+            fileName: "snapshot.jpg",
+            label: "Snapshot",
+        },
+        {
+            download: () => downloadWithRetry(() => downloadThumbnail(event), `Thumbnail [${event.id}]`),
+            fileName: "thumbnail.jpg",
+            label: "Thumbnail",
+        },
+    ];
 }
 
 /**
@@ -136,6 +137,6 @@ async function triggerWebhook(event) {
 
 module.exports = {
     fetchEvents,
-    downloadMedia,
+    getMediaDownloaders,
     triggerWebhook,
 };
