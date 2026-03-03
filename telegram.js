@@ -38,12 +38,24 @@ async function sendToTelegram(chatId, message) {
  * @returns {boolean}
  */
 async function sendMediaToTelegram(chatId, buffer, caption, fileName) {
-    const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument`;
+    let method, fieldName;
+    if (fileName.endsWith(".mp4")) {
+        method = "sendVideo";
+        fieldName = "video";
+    } else if (fileName.endsWith(".jpg") || fileName.endsWith(".jpeg") || fileName.endsWith(".png")) {
+        method = "sendPhoto";
+        fieldName = "photo";
+    } else {
+        method = "sendDocument";
+        fieldName = "document";
+    }
+
+    const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/${method}`;
 
     for (let attempt = 1; attempt <= MEDIA_RETRY_ATTEMPTS; attempt++) {
         const form = new FormData();
         form.append("chat_id", chatId);
-        form.append("document", buffer, { filename: fileName });
+        form.append(fieldName, buffer, { filename: fileName });
         if (caption) form.append("caption", caption);
         form.append("parse_mode", "HTML");
 
