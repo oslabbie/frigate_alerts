@@ -66,6 +66,27 @@ check_config() {
     print_status "config.json found"
 }
 
+install_mosquitto() {
+    if systemctl is-active --quiet mosquitto 2>/dev/null; then
+        print_status "Mosquitto MQTT broker is already running"
+        return
+    fi
+
+    if dpkg -l mosquitto 2>/dev/null | grep -q '^ii'; then
+        print_warning "Mosquitto is installed but not running, starting it..."
+        systemctl enable mosquitto
+        systemctl start mosquitto
+        print_status "Mosquitto started"
+        return
+    fi
+
+    print_info "Installing Mosquitto MQTT broker..."
+    apt-get install -y mosquitto mosquitto-clients > /dev/null 2>&1
+    systemctl enable mosquitto
+    systemctl start mosquitto
+    print_status "Mosquitto MQTT broker installed and started"
+}
+
 install_dependencies() {
     print_info "Installing npm dependencies..."
     cd "$APP_DIR"
@@ -111,6 +132,7 @@ install_service() {
     print_info "Installing Frigate Alerts service..."
     echo ""
     
+    install_mosquitto
     install_dependencies
     create_service_file
     
