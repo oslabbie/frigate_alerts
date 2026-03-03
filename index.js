@@ -1,6 +1,9 @@
 const {
     config,
-    POLL_INTERVAL,
+    FRIGATE_API_URL,
+    MEDIA_READY_DELAY_MS,
+    MQTT_CONFIG,
+    WEBHOOK_URL,
     getCameraSchedule,
     getScheduleForCameraAndGroup,
     shouldAlertAnyGroup,
@@ -8,52 +11,85 @@ const {
 } = require("./config");
 const { sendMediaAlertToGroups, sendTextAlertToGroups } = require("./telegram");
 const { fetchEvents, getMediaDownloaders, triggerWebhook } = require("./frigate");
+const { connect, disconnect } = require("./mqtt");
 
-let lastEvent;
-let lastTimestamp = 0;
+const processedEvents = new Set();
+const pendingEvents = new Map();
+const MAX_PROCESSED_EVENTS = 1000;
+const EVENT_END_TIMEOUT_MS = 60000;
 
 /**
- * Fetch and process events from Frigate
+ * Prune processed events set to prevent memory leak
  */
-async function fetchFrigateEvents() {
-    try {
-        const events = await fetchEvents();
-
-        if (events.length > 0) {
-            await new Promise((r) => setTimeout(r, 5000));
-
-            for (const event of events) {
-                if (!lastEvent || event.id === lastEvent.id) break;
-                if (!isLabelAllowed(event)) {
-                    console.log(
-                        `🏷️ Event ${event.id} label "${event.label}" not in allowed list for ${event.camera}`
-                    );
-                    continue;
-                }
-                if (!shouldAlertAnyGroup(event)) {
-                    console.log(
-                        `⏰ Event ${event.id} outside schedule for ${event.camera} (no groups to alert)`
-                    );
-                    continue;
-                }
-                if (event.start_time < lastTimestamp) continue;
-
-                processEvent(event);
-            }
-
-            lastEvent = events[0];
-            lastTimestamp = Date.now() / 1000 - 10 * 60;
-        }
-    } catch (error) {
-        console.error(
-            "❌ Error fetching events:",
-            error.response?.data || error.message
-        );
+function pruneProcessedEvents() {
+    if (processedEvents.size > MAX_PROCESSED_EVENTS) {
+        const entries = [...processedEvents];
+        const toRemove = entries.slice(0, entries.length - MAX_PROCESSED_EVENTS / 2);
+        toRemove.forEach((id) => processedEvents.delete(id));
     }
 }
 
 /**
- * Process a single Frigate event
+ * Handle incoming MQTT event from frigate/events topic
+ * @param {Object} payload - MQTT message payload with type, before, after
+ */
+function handleMqttEvent(payload) {
+    const { type } = payload;
+    const event = payload.after;
+
+    if (!event || !event.id) return;
+
+    if (type === "new") {
+        if (processedEvents.has(event.id)) return;
+
+        if (!isLabelAllowed(event)) {
+            console.log(`🏷️ Event ${event.id} label "${event.label}" not allowed for ${event.camera}`);
+            return;
+        }
+        if (!shouldAlertAnyGroup(event)) {
+            console.log(`⏰ Event ${event.id} outside schedule for ${event.camera}`);
+            return;
+        }
+
+        console.log(`📡 New event: ${event.label} on ${event.camera} [${event.id}]`);
+
+        // Start timeout — if "end" doesn't arrive, process with snapshot
+        const timer = setTimeout(() => {
+            if (processedEvents.has(event.id)) return;
+            pendingEvents.delete(event.id);
+            processedEvents.add(event.id);
+            pruneProcessedEvents();
+            console.log(`⏰ Event ${event.id} timed out waiting for end, processing now`);
+            event.end_time = event.start_time + 10;
+            processEvent(event);
+        }, EVENT_END_TIMEOUT_MS);
+
+        pendingEvents.set(event.id, { event, timer });
+    } else if (type === "end") {
+        if (processedEvents.has(event.id)) return;
+
+        // Clear pending timeout
+        const pending = pendingEvents.get(event.id);
+        if (pending) {
+            clearTimeout(pending.timer);
+            pendingEvents.delete(event.id);
+        }
+
+        if (!isLabelAllowed(event)) return;
+        if (!shouldAlertAnyGroup(event)) return;
+
+        processedEvents.add(event.id);
+        pruneProcessedEvents();
+
+        console.log(`🏁 Event ended: ${event.label} on ${event.camera} [${event.id}]`);
+
+        // Delay to let clip finalize, then process
+        setTimeout(() => processEvent(event), MEDIA_READY_DELAY_MS);
+    }
+}
+
+/**
+ * Process a single Frigate event — download media and send alerts
  * @param {Object} event
  */
 async function processEvent(event) {
@@ -70,41 +106,69 @@ ${scheduleInfo}`;
 
     triggerWebhook(event);
 
-    const send = async () => {
-        const downloaders = getMediaDownloaders(event);
+    const downloaders = getMediaDownloaders(event);
 
-        for (const { download, fileName, label } of downloaders) {
-            try {
-                const buffer = await download();
-                const sent = await sendMediaAlertToGroups(event, buffer, message, fileName);
-                if (sent) return;
-                console.log(`⚠️ ${label} downloaded but Telegram rejected it, trying next...`);
-            } catch (e) {
-                console.log(`⚠️ ${label} download failed after retries, trying next...`);
-            }
+    for (const { download, fileName, label } of downloaders) {
+        try {
+            const buffer = await download();
+            const sent = await sendMediaAlertToGroups(event, buffer, message, fileName);
+            if (sent) return;
+            console.log(`⚠️ ${label} downloaded but Telegram rejected it, trying next...`);
+        } catch (e) {
+            console.log(`⚠️ ${label} download failed after retries, trying next...`);
+        }
+    }
+
+    console.error("❌ All media types failed for event:", event.id);
+    await sendTextAlertToGroups(event, message + "\n⚠️ (No media available)");
+}
+
+/**
+ * Catch up on events missed while the service was down
+ */
+async function catchUpMissedEvents() {
+    try {
+        console.log("🔍 Checking for missed events...");
+        const fiveMinutesAgo = Date.now() / 1000 - 5 * 60;
+        const events = await fetchEvents({ after: fiveMinutesAgo, limit: 50 });
+
+        if (!events || events.length === 0) {
+            console.log("   No recent events found");
+            return;
         }
 
-        console.error("❌ All media types failed for event:", event.id);
-        await sendTextAlertToGroups(event, message + "\n⚠️ (No media available)");
-    };
+        // Only process completed events (have end_time)
+        const completedEvents = events.filter((e) => e.end_time);
 
-    if (event.has_clip && !event.end_time) {
-        setTimeout(async () => {
-            event.end_time = event.start_time + 5;
-            send();
-        }, 7000);
-    } else {
-        send();
+        if (completedEvents.length === 0) {
+            console.log("   No completed events to catch up on");
+            return;
+        }
+
+        console.log(`   Found ${completedEvents.length} recent event(s), processing...`);
+
+        for (const event of completedEvents) {
+            if (processedEvents.has(event.id)) continue;
+            if (!isLabelAllowed(event)) continue;
+            if (!shouldAlertAnyGroup(event)) continue;
+
+            processedEvents.add(event.id);
+            await processEvent(event);
+        }
+    } catch (error) {
+        console.error("❌ Error during catch-up:", error.message);
     }
 }
 
-// Print startup configuration summary
+/**
+ * Print startup configuration summary
+ */
 function printConfigSummary() {
-    const { FRIGATE_API_URL, WEBHOOK_URL } = require("./config");
-
     console.log("\n📋 Configuration Summary:");
     console.log(`   Frigate API: ${FRIGATE_API_URL}`);
-    console.log(`   Poll Interval: ${POLL_INTERVAL / 1000}s`);
+    console.log(`   MQTT Broker: ${MQTT_CONFIG.host}`);
+    console.log(`   MQTT Topic: ${MQTT_CONFIG.topic_prefix}/events`);
+    console.log(`   Media Ready Delay: ${MEDIA_READY_DELAY_MS / 1000}s`);
     console.log(`   Webhook: ${WEBHOOK_URL || "Not configured"}`);
 
     const defaultSchedule = config.default_schedule || {
@@ -171,7 +235,23 @@ function printConfigSummary() {
     console.log("");
 }
 
+// Graceful shutdown
+function shutdown() {
+    console.log("\n🛑 Shutting down...");
+    for (const [, { timer }] of pendingEvents) {
+        clearTimeout(timer);
+    }
+    pendingEvents.clear();
+    disconnect();
+    process.exit(0);
+}
+
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);
+
 // Start the service
 printConfigSummary();
-setInterval(fetchFrigateEvents, POLL_INTERVAL);
-console.log("🚀 Frigate event listener started...\n");
+catchUpMissedEvents().then(() => {
+    connect(MQTT_CONFIG, handleMqttEvent);
+    console.log("🚀 Frigate event listener started (MQTT mode)\n");
+});

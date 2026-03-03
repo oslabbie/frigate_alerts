@@ -20,10 +20,18 @@ try {
 const TELEGRAM_BOT_TOKEN =
     config.telegram_bot_token || process.env.TELEGRAM_BOT_TOKEN;
 const FRIGATE_API_URL = config.frigate_api_url || process.env.API_URL;
-const POLL_INTERVAL = (config.poll_interval_seconds || 10) * 1000;
 const WEBHOOK_URL = config.webhook_url || process.env.WEBHOOK_TRIGGER;
 const MEDIA_RETRY_ATTEMPTS = config.media_retry_attempts || 4;
 const MEDIA_RETRY_DELAY_MS = (config.media_retry_delay_seconds || 3) * 1000;
+const MEDIA_READY_DELAY_MS = (config.media_ready_delay_seconds || 5) * 1000;
+
+// MQTT configuration
+const MQTT_CONFIG = {
+    host: config.mqtt?.host || process.env.MQTT_HOST,
+    topic_prefix: config.mqtt?.topic_prefix || "frigate",
+    username: config.mqtt?.username || process.env.MQTT_USERNAME || null,
+    password: config.mqtt?.password || process.env.MQTT_PASSWORD || null,
+};
 
 // Validate required configuration
 if (!TELEGRAM_BOT_TOKEN) {
@@ -38,6 +46,11 @@ if (!FRIGATE_API_URL) {
 
 if (!config.groups || Object.keys(config.groups).length === 0) {
     console.error("❌ No groups defined in config");
+    process.exit(1);
+}
+
+if (!MQTT_CONFIG.host) {
+    console.error("❌ Missing mqtt.host in config — an MQTT broker is required");
     process.exit(1);
 }
 
@@ -265,10 +278,11 @@ module.exports = {
     config,
     TELEGRAM_BOT_TOKEN,
     FRIGATE_API_URL,
-    POLL_INTERVAL,
     WEBHOOK_URL,
     MEDIA_RETRY_ATTEMPTS,
     MEDIA_RETRY_DELAY_MS,
+    MEDIA_READY_DELAY_MS,
+    MQTT_CONFIG,
     getGroupsForCamera,
     getGroupsToAlert,
     getCameraSchedule,

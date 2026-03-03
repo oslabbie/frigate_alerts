@@ -40,8 +40,8 @@ async function downloadWithRetry(fn, label) {
  * Fetch events from Frigate API
  * @returns {Promise<Array>}
  */
-async function fetchEvents() {
-    const response = await axios.get(`${FRIGATE_API_URL}/events`);
+async function fetchEvents(params = {}) {
+    const response = await axios.get(`${FRIGATE_API_URL}/events`, { params });
     return response.data;
 }
 
@@ -52,12 +52,7 @@ async function fetchEvents() {
  */
 async function downloadVideo(event) {
     if (!event.end_time) {
-        await new Promise((r) => {
-            setTimeout(() => {
-                event.end_time = event.start_time + 17;
-                r();
-            }, 20000);
-        });
+        event.end_time = event.start_time + 10;
     }
     const url = `${FRIGATE_API_URL}/${event.camera}/start/${event.start_time}/end/${event.end_time}/clip.mp4`;
     const response = await axios.get(url, { responseType: "arraybuffer" });

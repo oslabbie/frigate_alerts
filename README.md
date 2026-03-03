@@ -1,15 +1,24 @@
 # Frigate Telegram Integration
 
-Send Frigate NVR alerts to multiple Telegram groups with per-camera scheduling and label filtering.
+Send Frigate NVR alerts to multiple Telegram groups with real-time MQTT event detection, per-camera scheduling, and label filtering.
 
 ## Features
 
+- 📡 **Real-Time MQTT** - Instant event detection via Frigate's MQTT feed (no polling)
 - 📱 **Multiple Telegram Groups** - Send alerts to different groups based on camera
 - ⏰ **Per-Camera Scheduling** - Set different alert windows for each camera
 - 🔔 **Always Send Option** - Bypass schedule for critical cameras
 - 🏷️ **Label Filtering** - Only alert on specific object types per camera
 - 📹 **Media Attachments** - Sends video clips, snapshots, or thumbnails
 - 🔗 **Webhook Support** - Trigger external webhooks on events
+- 🔄 **Startup Catch-Up** - Checks for missed events on restart via the HTTP API
+
+## Prerequisites
+
+- **Node.js** (v16+)
+- **Frigate NVR** with MQTT enabled
+- **MQTT Broker** (e.g., Mosquitto) — Frigate must be configured to publish to it
+- **Telegram Bot** — create one via [@BotFather](https://t.me/BotFather)
 
 ## Installation
 
@@ -25,8 +34,16 @@ Create a `config.json` file (see `config.example.json` for reference):
 {
   "frigate_api_url": "http://frigate:5000/api",
   "telegram_bot_token": "YOUR_BOT_TOKEN",
-  "poll_interval_seconds": 10,
   "webhook_url": null,
+
+  "mqtt": {
+    "host": "mqtt://localhost",
+    "topic_prefix": "frigate",
+    "username": null,
+    "password": null
+  },
+
+  "media_ready_delay_seconds": 5,
 
   "default_schedule": {
     "start_time": "00:00",
@@ -72,12 +89,20 @@ Create a `config.json` file (see `config.example.json` for reference):
 #### Root Level
 | Option | Type | Description |
 |--------|------|-------------|
-| `frigate_api_url` | string | Frigate API URL |
+| `frigate_api_url` | string | Frigate API URL (used for media downloads and startup catch-up) |
 | `telegram_bot_token` | string | Telegram bot token |
-| `poll_interval_seconds` | number | How often to check for events (default: 10) |
 | `webhook_url` | string | Optional webhook URL to trigger on events |
+| `media_ready_delay_seconds` | number | Seconds to wait after event ends before fetching clip (default: 5) |
 | `default_schedule` | object | Default schedule for unconfigured cameras |
 | `default_groups` | array | Default groups for unconfigured cameras |
+
+#### MQTT
+| Option | Type | Description |
+|--------|------|-------------|
+| `mqtt.host` | string | MQTT broker URL (e.g., `mqtt://localhost` or `mqtt://192.168.1.10`) |
+| `mqtt.topic_prefix` | string | Frigate's MQTT topic prefix (default: `frigate`) |
+| `mqtt.username` | string | Optional MQTT username |
+| `mqtt.password` | string | Optional MQTT password |
 
 #### Groups
 Define your Telegram groups/chats:
@@ -125,13 +150,37 @@ Configure per-camera settings:
 
 ### Environment Variable Fallback
 
-For backwards compatibility, you can still use environment variables:
+For backwards compatibility, you can also use environment variables:
 
 ```bash
 TELEGRAM_BOT_TOKEN="..."
 API_URL="http://frigate:5000/api"
+MQTT_HOST="mqtt://localhost"
+MQTT_USERNAME="..."
+MQTT_PASSWORD="..."
 CONFIG_PATH="./config.json"  # Custom config file path
 ```
+
+## How It Works
+
+The service uses a **hybrid MQTT + HTTP API** approach:
+
+1. **MQTT for event detection** — Subscribes to `frigate/events` for real-time push notifications. Frigate publishes `"new"`, `"update"`, and `"end"` messages as objects are tracked.
+2. **HTTP API for media** — Downloads video clips, snapshots, and thumbnails from the Frigate REST API once an event is complete.
+3. **Startup catch-up** — On launch, queries the API for events from the last 5 minutes to cover any downtime.
+
+### Event Lifecycle
+
+```
+Frigate detects object
+  └─ MQTT "new" → event tracked, 60s safety timeout started
+       └─ MQTT "end" → timeout cleared, wait for clip to finalize
+            └─ Download media (video → snapshot → thumbnail)
+                 └─ Send to Telegram groups
+```
+
+- **Short events** (person walks by): `"end"` fires within seconds, clip is fetched with full video
+- **Long events** (lingering object): if `"end"` doesn't arrive within 60 seconds, the alert is sent with whatever media is available
 
 ## Running
 
@@ -221,7 +270,9 @@ When the service starts, it prints a configuration summary:
 
 📋 Configuration Summary:
    Frigate API: http://frigate:5000/api
-   Poll Interval: 10s
+   MQTT Broker: mqtt://localhost
+   MQTT Topic: frigate/events
+   Media Ready Delay: 5s
    Webhook: Not configured
 
 👥 Groups:
@@ -240,5 +291,9 @@ When the service starts, it prints a configuration summary:
       Groups: security
       Labels: all
 
-🚀 Frigate event listener started...
+🔍 Checking for missed events...
+   No recent events found
+✅ Connected to MQTT broker at mqtt://localhost
+📡 Subscribed to frigate/events
+🚀 Frigate event listener started (MQTT mode)
 ```
