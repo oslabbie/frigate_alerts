@@ -26,6 +26,34 @@ Send Frigate NVR alerts to multiple Telegram groups with real-time MQTT event de
 npm install
 ```
 
+Or use the install script on Linux which also installs Mosquitto and sets up a systemd service:
+
+```bash
+sudo ./install
+```
+
+### Frigate MQTT Setup
+
+Frigate must have MQTT enabled and pointing to your broker. Add this to your Frigate `config.yml`:
+
+```yaml
+mqtt:
+  enabled: true
+  host: 127.0.0.1
+  port: 1883
+```
+
+**Docker networking note:** If Frigate runs in Docker, use `network_mode: host` in your `docker-compose.yml` so that `127.0.0.1` refers to the host machine:
+
+```yaml
+services:
+  frigate:
+    # ... your existing config ...
+    network_mode: host
+```
+
+Without `network_mode: host`, you must use the host's actual IP address (e.g., `192.168.1.x`) instead of `127.0.0.1` in Frigate's MQTT config, since `127.0.0.1` inside the container points to the container itself.
+
 ## Configuration
 
 Create a `config.json` file (see `config.example.json` for reference):
