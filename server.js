@@ -1,6 +1,7 @@
 const express = require("express");
 const path = require("path");
 const fs = require("fs");
+const crypto = require("crypto");
 const snooze = require("./snooze");
 const auth = require("./auth");
 
@@ -364,7 +365,85 @@ function createMcpServer(allowedTools = null) {
 
 const app = express();
 app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: false }));
 app.use(express.static(path.join(__dirname, "public")));
+
+// ── OAuth 2.0 endpoints (required by MCP HTTP transport spec) ────────────────
+// MCP clients do OAuth discovery before using Bearer tokens.
+// These endpoints implement the minimal flow: register → token exchange.
+// The MCP token from --header "Authorization: Bearer <token>" is validated
+// at the token endpoint and returned as the access_token.
+
+app.get("/.well-known/oauth-authorization-server", (req, res) => {
+    const base = `${req.protocol}://${req.get("host")}`;
+    res.json({
+        issuer: base,
+        token_endpoint: `${base}/oauth/token`,
+        registration_endpoint: `${base}/oauth/register`,
+        grant_types_supported: ["client_credentials"],
+        token_endpoint_auth_methods_supported: ["none"],
+        scopes_supported: ["snooze", "admin"],
+        response_types_supported: ["token"],
+    });
+});
+
+app.get("/.well-known/oauth-protected-resource", (req, res) => {
+    const base = `${req.protocol}://${req.get("host")}`;
+    res.json({
+        resource: base,
+        authorization_servers: [base],
+    });
+});
+
+// Dynamic client registration — no credentials needed, just issue a client_id
+app.post("/oauth/register", (req, res) => {
+    res.status(201).json({
+        client_id: crypto.randomUUID(),
+        client_id_issued_at: Math.floor(Date.now() / 1000),
+        token_endpoint_auth_method: "none",
+        grant_types: ["client_credentials"],
+    });
+});
+
+// Also handle without /oauth/ prefix (some clients use default paths)
+app.post("/register", (req, res) => {
+    res.status(201).json({
+        client_id: crypto.randomUUID(),
+        client_id_issued_at: Math.floor(Date.now() / 1000),
+        token_endpoint_auth_method: "none",
+        grant_types: ["client_credentials"],
+    });
+});
+
+// Token endpoint — MCP token provided via Authorization: Bearer header is
+// validated and returned as the access_token. Claude Code sends --header
+// values to all requests including this one.
+function handleTokenRequest(req, res) {
+    const authHeader = req.headers.authorization || "";
+    const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+    if (!token) {
+        return res.status(401).json({
+            error: "invalid_client",
+            error_description: "Provide your MCP token as: Authorization: Bearer <token>",
+        });
+    }
+    const tokenInfo = auth.validateMcpToken(token);
+    if (!tokenInfo) {
+        return res.status(401).json({
+            error: "invalid_client",
+            error_description: "Invalid MCP token",
+        });
+    }
+    res.json({
+        access_token: token,
+        token_type: "bearer",
+        expires_in: 86400,
+        scope: tokenInfo.scope,
+    });
+}
+
+app.post("/oauth/token", handleTokenRequest);
+app.post("/token", handleTokenRequest);
 
 // ── Auth endpoints (no session required) ─────────────────────────────────────
 
