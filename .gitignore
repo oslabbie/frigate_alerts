@@ -2,3 +2,5 @@
 node_modules
 .DS_Store
 config.json
+auth.json
+snooze.json

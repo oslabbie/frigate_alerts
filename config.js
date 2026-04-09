@@ -274,6 +274,25 @@ function isLabelAllowed(event) {
     return allowedLabels.includes(event.label);
 }
 
+/**
+ * Reload configuration from disk in-place.
+ * All functions that read from `config` will see the updated values immediately.
+ * Infrastructure constants (tokens, URLs) still require a restart to take effect.
+ */
+function reloadConfig() {
+    try {
+        const newConfig = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
+        // Mutate the exported object in-place so all modules see the change
+        Object.keys(config).forEach((k) => delete config[k]);
+        Object.assign(config, newConfig);
+        console.log("✅ Configuration reloaded");
+        return true;
+    } catch (e) {
+        console.error("❌ Failed to reload config:", e.message);
+        return false;
+    }
+}
+
 module.exports = {
     config,
     TELEGRAM_BOT_TOKEN,
@@ -289,4 +308,5 @@ module.exports = {
     getScheduleForCameraAndGroup,
     shouldAlertAnyGroup,
     isLabelAllowed,
+    reloadConfig,
 };

@@ -1,0 +1,1302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Frigate Alerts Manager</title>
+<style>
+:root {
+  --bg: #0f172a;
+  --bg2: #1e293b;
+  --bg3: #273549;
+  --border: #334155;
+  --text: #f1f5f9;
+  --text2: #94a3b8;
+  --primary: #3b82f6;
+  --primary-d: #2563eb;
+  --danger: #ef4444;
+  --danger-d: #dc2626;
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --radius: 8px;
+  --sidebar-w: 200px;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; font-size: 14px; }
+
+/* Header */
+.header { background: var(--bg2); border-bottom: 1px solid var(--border); padding: 0 20px; height: 52px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100; }
+.header h1 { font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.header h1 span { font-size: 20px; }
+.status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); display: inline-block; }
+.status-dot.offline { background: var(--danger); }
+.header-right { display: flex; align-items: center; gap: 12px; color: var(--text2); font-size: 13px; }
+
+/* Snooze banner */
+#snooze-banner { background: #78350f; border-bottom: 1px solid #92400e; padding: 8px 20px; display: none; align-items: center; gap: 10px; font-size: 13px; }
+#snooze-banner.active { display: flex; }
+#snooze-banner-text { flex: 1; }
+#snooze-banner button { background: #92400e; color: #fde68a; border: 1px solid #b45309; border-radius: 4px; padding: 3px 10px; cursor: pointer; font-size: 12px; }
+#snooze-banner button:hover { background: #b45309; }
+
+/* Layout */
+.layout { display: flex; flex: 1; }
+.sidebar { width: var(--sidebar-w); background: var(--bg2); border-right: 1px solid var(--border); padding: 16px 0; flex-shrink: 0; position: sticky; top: 52px; height: calc(100vh - 52px); overflow-y: auto; }
+.sidebar nav a { display: flex; align-items: center; gap: 10px; padding: 10px 20px; color: var(--text2); text-decoration: none; font-size: 13px; font-weight: 500; transition: all 0.15s; cursor: pointer; }
+.sidebar nav a:hover { color: var(--text); background: var(--bg3); }
+.sidebar nav a.active { color: var(--primary); background: rgba(59,130,246,0.1); border-right: 2px solid var(--primary); }
+.sidebar nav a .icon { font-size: 16px; width: 20px; text-align: center; }
+
+.main { flex: 1; padding: 24px; overflow-y: auto; }
+.section { display: none; }
+.section.active { display: block; }
+
+/* Cards */
+.card { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; margin-bottom: 20px; }
+.card h2 { font-size: 15px; font-weight: 600; margin-bottom: 16px; color: var(--text); display: flex; align-items: center; gap: 8px; }
+.card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.stat-card { background: var(--bg3); border-radius: 6px; padding: 14px 16px; }
+.stat-card .label { color: var(--text2); font-size: 12px; margin-bottom: 4px; }
+.stat-card .value { font-size: 24px; font-weight: 700; }
+.stat-card .value.success { color: var(--success); }
+.stat-card .value.warning { color: var(--warning); }
+
+/* Buttons */
+.btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: 6px; border: none; font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.15s; }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-primary { background: var(--primary); color: white; }
+.btn-primary:hover:not(:disabled) { background: var(--primary-d); }
+.btn-danger { background: var(--danger); color: white; }
+.btn-danger:hover:not(:disabled) { background: var(--danger-d); }
+.btn-ghost { background: transparent; color: var(--text2); border: 1px solid var(--border); }
+.btn-ghost:hover:not(:disabled) { background: var(--bg3); color: var(--text); }
+.btn-warning { background: var(--warning); color: #1c1917; }
+.btn-warning:hover:not(:disabled) { background: #d97706; }
+.btn-sm { padding: 4px 10px; font-size: 12px; }
+
+/* Forms */
+.form-group { margin-bottom: 14px; }
+.form-group label { display: block; font-size: 12px; color: var(--text2); margin-bottom: 5px; font-weight: 500; }
+.form-group input, .form-group select, .form-group textarea { width: 100%; background: var(--bg3); border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; color: var(--text); font-size: 13px; outline: none; transition: border-color 0.15s; }
+.form-group input:focus, .form-group select:focus, .form-group textarea:focus { border-color: var(--primary); }
+.form-group textarea { resize: vertical; min-height: 80px; font-family: monospace; }
+.form-group select option { background: var(--bg2); }
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.form-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+.toggle-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.toggle-row:last-child { border-bottom: none; }
+.toggle-row label { color: var(--text); font-size: 13px; }
+.toggle-row .toggle-desc { color: var(--text2); font-size: 11px; }
+
+/* Toggle switch */
+.toggle { position: relative; width: 38px; height: 22px; flex-shrink: 0; }
+.toggle input { opacity: 0; width: 0; height: 0; }
+.slider { position: absolute; inset: 0; background: var(--border); border-radius: 11px; cursor: pointer; transition: 0.2s; }
+.slider::before { content: ''; position: absolute; width: 16px; height: 16px; left: 3px; bottom: 3px; background: white; border-radius: 50%; transition: 0.2s; }
+.toggle input:checked + .slider { background: var(--primary); }
+.toggle input:checked + .slider::before { transform: translateX(16px); }
+
+/* Table */
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; }
+th { text-align: left; padding: 10px 12px; font-size: 11px; font-weight: 600; color: var(--text2); text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--border); background: var(--bg3); }
+td { padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 13px; vertical-align: middle; }
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: rgba(255,255,255,0.02); }
+.badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 99px; font-size: 11px; font-weight: 500; }
+.badge-green { background: rgba(34,197,94,0.15); color: var(--success); }
+.badge-red { background: rgba(239,68,68,0.15); color: var(--danger); }
+.badge-yellow { background: rgba(245,158,11,0.15); color: var(--warning); }
+.badge-blue { background: rgba(59,130,246,0.15); color: var(--primary); }
+
+/* Section header */
+.section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+.section-header h1 { font-size: 18px; font-weight: 700; }
+
+/* Modal */
+.modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 200; align-items: center; justify-content: center; }
+.modal-overlay.open { display: flex; }
+.modal { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); width: 560px; max-width: calc(100vw - 40px); max-height: calc(100vh - 80px); display: flex; flex-direction: column; }
+.modal-header { padding: 18px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+.modal-header h3 { font-size: 15px; font-weight: 600; }
+.modal-close { background: none; border: none; color: var(--text2); font-size: 20px; cursor: pointer; line-height: 1; }
+.modal-close:hover { color: var(--text); }
+.modal-body { padding: 20px; overflow-y: auto; flex: 1; }
+.modal-footer { padding: 14px 20px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px; }
+
+/* Snooze items */
+.snooze-list { display: flex; flex-direction: column; gap: 10px; }
+.snooze-item { background: var(--bg3); border: 1px solid var(--border); border-radius: 6px; padding: 12px 16px; display: flex; align-items: center; gap: 12px; }
+.snooze-item .snooze-target { font-weight: 600; flex: 1; }
+.snooze-item .snooze-remaining { color: var(--warning); font-size: 12px; font-weight: 500; }
+.snooze-item .snooze-until { color: var(--text2); font-size: 11px; }
+.snooze-quick { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* Quick actions */
+.quick-snooze { background: var(--bg3); border-radius: 6px; padding: 14px; }
+.quick-snooze h4 { font-size: 12px; font-weight: 600; color: var(--text2); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; }
+
+/* Tabs within card */
+.inner-tabs { display: flex; gap: 0; margin-bottom: 20px; border-bottom: 1px solid var(--border); }
+.inner-tab { padding: 8px 16px; font-size: 13px; cursor: pointer; color: var(--text2); border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.inner-tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+
+/* Toast */
+#toast { position: fixed; bottom: 24px; right: 24px; background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 12px 18px; font-size: 13px; z-index: 999; opacity: 0; transform: translateY(8px); transition: all 0.25s; pointer-events: none; max-width: 320px; }
+#toast.show { opacity: 1; transform: translateY(0); }
+#toast.success { border-color: var(--success); color: var(--success); }
+#toast.error { border-color: var(--danger); color: var(--danger); }
+
+/* Labels input */
+.tags-input { display: flex; flex-wrap: wrap; gap: 5px; background: var(--bg3); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; min-height: 38px; align-items: center; }
+.tags-input input { background: none; border: none; outline: none; color: var(--text); font-size: 13px; flex: 1; min-width: 80px; }
+.tag { background: rgba(59,130,246,0.2); color: var(--primary); border-radius: 4px; padding: 2px 6px; font-size: 12px; display: flex; align-items: center; gap: 4px; }
+.tag-remove { cursor: pointer; color: var(--text2); font-size: 14px; line-height: 1; }
+.tag-remove:hover { color: var(--danger); }
+
+/* Multi-select */
+.multi-select { display: flex; flex-direction: column; gap: 4px; background: var(--bg3); border: 1px solid var(--border); border-radius: 6px; padding: 8px; max-height: 140px; overflow-y: auto; }
+.multi-select label { display: flex; align-items: center; gap: 8px; padding: 3px 4px; border-radius: 4px; cursor: pointer; font-size: 13px; }
+.multi-select label:hover { background: var(--bg2); }
+.multi-select input[type=checkbox] { accent-color: var(--primary); }
+
+.help-text { font-size: 11px; color: var(--text2); margin-top: 4px; }
+.empty-state { text-align: center; padding: 40px 20px; color: var(--text2); }
+.empty-state .icon { font-size: 40px; margin-bottom: 10px; }
+
+/* Login screen */
+#login-screen { position: fixed; inset: 0; background: var(--bg); z-index: 500; display: flex; align-items: center; justify-content: center; }
+#login-screen.hidden { display: none; }
+.login-box { background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 40px 36px; width: 360px; }
+.login-box h2 { font-size: 20px; font-weight: 700; margin-bottom: 6px; text-align: center; }
+.login-box .subtitle { color: var(--text2); font-size: 13px; text-align: center; margin-bottom: 28px; }
+.login-error { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); color: var(--danger); border-radius: 6px; padding: 8px 12px; font-size: 13px; margin-bottom: 14px; display: none; }
+.login-error.show { display: block; }
+.login-box .btn-primary { width: 100%; justify-content: center; padding: 10px; font-size: 14px; margin-top: 4px; }
+
+/* Token display */
+.token-display { font-family: monospace; font-size: 12px; background: var(--bg3); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; word-break: break-all; color: var(--primary); }
+.copy-row { display: flex; gap: 8px; align-items: flex-start; }
+.copy-row .token-display { flex: 1; }
+#header-user { color: var(--text2); }
+.section-divider { border-top: 1px solid var(--border); padding-top: 16px; }
+.subsection-label { font-size: 12px; font-weight: 600; color: var(--text2); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px; }
+.mb-lg { margin-bottom: 20px; }
+.mt-lg { margin-top: 20px; }
+.mb-sm { margin-bottom: 8px; }
+.text-hint { color: var(--text2); font-size: 12px; margin-bottom: 14px; }
+.td-muted { color: var(--text2); text-align: center; }
+.required-star { color: var(--danger); }
+.token-form-row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+.form-group-flex { margin: 0; flex: 1; min-width: 140px; }
+.form-group-narrow { margin: 0; min-width: 140px; }
+.flex-shrink-0 { flex-shrink: 0; }
+.token-reveal { display: none; margin-top: 14px; }
+.token-reveal-msg { font-size: 12px; color: var(--success); margin-bottom: 6px; font-weight: 600; }
+.toggle-row-sm { margin-bottom: 8px; }
+.toggle-row-md { margin-bottom: 14px; }
+.conn-grid { display: grid; gap: 8px; }
+.conn-row { display: flex; justify-content: space-between; padding: 8px 0; }
+.conn-row-border { border-bottom: 1px solid var(--border); }
+.conn-label { color: var(--text2); }
+.conn-value { font-family: monospace; font-size: 12px; }
+</style>
+</head>
+<body>
+
+<!-- Login screen -->
+<div id="login-screen">
+  <div class="login-box">
+    <h2>🎯 Frigate Alerts</h2>
+    <p class="subtitle">Sign in to manage your alerts</p>
+    <div class="login-error" id="login-error"></div>
+    <div class="form-group">
+      <label for="login-user">Username</label>
+      <input type="text" id="login-user" autocomplete="username" placeholder="Username" value="admin">
+    </div>
+    <div class="form-group">
+      <label for="login-pass">Password</label>
+      <input type="password" id="login-pass" autocomplete="current-password" placeholder="Password" value="admin">
+    </div>
+    <button type="submit" class="btn btn-primary" onclick="doLogin()" id="login-btn">Sign In</button>
+  </div>
+</div>
+
+<div class="header">
+  <h1><span>🎯</span> Frigate Alerts Manager</h1>
+  <div class="header-right">
+    <span id="status-text"><span class="status-dot" id="status-dot"></span> Loading...</span>
+    <span id="header-user"></span>
+    <button type="button" class="btn btn-ghost btn-sm" onclick="doLogout()">Sign out</button>
+  </div>
+</div>
+
+<div id="snooze-banner">
+  <span>💤</span>
+  <span id="snooze-banner-text"></span>
+  <button onclick="clearAllSnoozes()">Clear All Snoozes</button>
+</div>
+
+<div class="layout">
+  <div class="sidebar">
+    <nav>
+      <a class="active" data-section="dashboard"><span class="icon">📊</span>Dashboard</a>
+      <a data-section="settings"><span class="icon">⚙️</span>Settings</a>
+      <a data-section="cameras"><span class="icon">📹</span>Cameras</a>
+      <a data-section="groups"><span class="icon">👥</span>Groups</a>
+      <a data-section="snooze"><span class="icon">💤</span>Snooze</a>
+    </nav>
+  </div>
+
+  <main class="main">
+
+    <!-- Dashboard -->
+    <div class="section active" id="section-dashboard">
+      <div class="section-header">
+        <h1>Dashboard</h1>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="refreshAll()">↻ Refresh</button>
+      </div>
+
+      <div class="card-grid" id="stat-cards">
+        <div class="stat-card"><div class="label">Service</div><div class="value success" id="stat-service">Running</div></div>
+        <div class="stat-card"><div class="label">Uptime</div><div class="value" id="stat-uptime">—</div></div>
+        <div class="stat-card"><div class="label">Cameras</div><div class="value" id="stat-cameras">—</div></div>
+        <div class="stat-card"><div class="label">Groups</div><div class="value" id="stat-groups">—</div></div>
+        <div class="stat-card"><div class="label">Active Snoozes</div><div class="value warning" id="stat-snoozes">0</div></div>
+      </div>
+
+      <div class="card">
+        <h2>🔌 Connection</h2>
+        <div class="conn-grid">
+          <div class="conn-row conn-row-border">
+            <span class="conn-label">Frigate API</span><span id="info-frigate-api" class="conn-value">—</span>
+          </div>
+          <div class="conn-row">
+            <span class="conn-label">MQTT Broker</span><span id="info-mqtt" class="conn-value">—</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>⚡ Quick Snooze</h2>
+        <p class="text-hint">Temporarily suppress all alerts globally.</p>
+        <div class="snooze-quick">
+          <button type="button" class="btn btn-warning btn-sm" onclick="quickSnooze('global',15)">💤 15 min</button>
+          <button type="button" class="btn btn-warning btn-sm" onclick="quickSnooze('global',30)">💤 30 min</button>
+          <button type="button" class="btn btn-warning btn-sm" onclick="quickSnooze('global',60)">💤 1 hour</button>
+          <button type="button" class="btn btn-warning btn-sm" onclick="quickSnooze('global',120)">💤 2 hours</button>
+          <button type="button" class="btn btn-ghost btn-sm" onclick="nav('snooze')">Custom snooze →</button>
+        </div>
+      </div>
+
+      <div class="card" id="active-snoozes-card" hidden>
+        <h2>💤 Active Snoozes</h2>
+        <div class="snooze-list" id="dashboard-snooze-list"></div>
+      </div>
+    </div>
+
+    <!-- Settings -->
+    <div class="section" id="section-settings">
+      <div class="section-header"><h1>Settings</h1></div>
+
+      <div class="card">
+        <h2>🌐 General</h2>
+        <div class="form-group">
+          <label>Frigate API URL</label>
+          <input type="text" id="cfg-frigate-api" placeholder="http://frigate:5000/api">
+        </div>
+        <div class="form-group">
+          <label>Telegram Bot Token</label>
+          <input type="password" id="cfg-bot-token" placeholder="••••••••">
+        </div>
+        <div class="form-group">
+          <label>Webhook URL <span style="color:var(--text2)">(optional)</span></label>
+          <input type="text" id="cfg-webhook" placeholder="https://...">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Media Ready Delay (seconds)</label>
+            <input type="number" id="cfg-media-delay" min="0" max="60" value="5">
+          </div>
+          <div class="form-group">
+            <label>Media Retry Attempts</label>
+            <input type="number" id="cfg-retry-attempts" min="1" max="10" value="4">
+          </div>
+          <div class="form-group">
+            <label>Media Retry Delay (seconds)</label>
+            <input type="number" id="cfg-retry-delay" min="1" max="30" value="3">
+          </div>
+        </div>
+        <button class="btn btn-primary" onclick="saveGeneralSettings()">Save General Settings</button>
+      </div>
+
+      <div class="card">
+        <h2>📡 MQTT</h2>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Broker Host</label>
+            <input type="text" id="cfg-mqtt-host" placeholder="mqtt://localhost">
+          </div>
+          <div class="form-group">
+            <label>Topic Prefix</label>
+            <input type="text" id="cfg-mqtt-prefix" placeholder="frigate">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Username <span style="color:var(--text2)">(optional)</span></label>
+            <input type="text" id="cfg-mqtt-user" placeholder="">
+          </div>
+          <div class="form-group">
+            <label>Password <span style="color:var(--text2)">(optional)</span></label>
+            <input type="password" id="cfg-mqtt-pass" placeholder="••••••••">
+          </div>
+        </div>
+        <button class="btn btn-primary" onclick="saveMqttSettings()">Save MQTT Settings</button>
+      </div>
+
+      <div class="card">
+        <h2>⏰ Default Schedule</h2>
+        <p style="color:var(--text2);font-size:12px;margin-bottom:14px">Applied when no camera or group schedule is configured.</p>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Start Time</label>
+            <input type="time" id="cfg-sched-start" value="00:00">
+          </div>
+          <div class="form-group">
+            <label>End Time</label>
+            <input type="time" id="cfg-sched-end" value="23:59">
+          </div>
+        </div>
+        <div class="toggle-row">
+          <div>
+            <div>Always Send</div>
+            <div class="toggle-desc">Ignore schedule — always alert</div>
+          </div>
+          <label class="toggle"><input type="checkbox" id="cfg-sched-always"><span class="slider"></span></label>
+        </div>
+        <br>
+        <div class="form-group">
+          <label>Default Groups (comma-separated group names)</label>
+          <input type="text" id="cfg-default-groups" placeholder="family, security">
+          <div class="help-text">Cameras without explicit group assignments use these groups.</div>
+        </div>
+        <button type="button" class="btn btn-primary" onclick="saveScheduleSettings()">Save Schedule & Groups</button>
+      </div>
+
+      <div class="card">
+        <h2>🔑 MCP Tokens</h2>
+        <p class="text-hint">Tokens grant AI tools access to the MCP endpoint. Use <code>Authorization: Bearer &lt;token&gt;</code>. The full token is shown only once when created.</p>
+        <div class="table-wrap mb-lg">
+          <table>
+            <thead>
+              <tr><th>Name</th><th>Scope</th><th>Token (preview)</th><th>Created</th><th></th></tr>
+            </thead>
+            <tbody id="mcp-tokens-tbody">
+              <tr><td colspan="5" class="td-muted">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="token-form-row">
+          <div class="form-group form-group-flex">
+            <label for="new-token-name">Token Name</label>
+            <input type="text" id="new-token-name" placeholder="e.g. Home Assistant">
+          </div>
+          <div class="form-group form-group-narrow">
+            <label for="new-token-scope">Scope</label>
+            <select id="new-token-scope">
+              <option value="snooze">snooze — snooze only</option>
+              <option value="admin">admin — config + snooze + restart</option>
+            </select>
+          </div>
+          <button type="button" class="btn btn-primary flex-shrink-0" onclick="createMcpToken()">+ Create Token</button>
+        </div>
+        <div id="new-token-reveal" class="token-reveal">
+          <div class="token-reveal-msg">✅ Token created — copy it now, it won't be shown again:</div>
+          <div class="copy-row">
+            <div class="token-display" id="new-token-value"></div>
+            <button type="button" class="btn btn-ghost btn-sm" onclick="copyNewToken()">Copy</button>
+          </div>
+        </div>
+        <div class="section-divider mt-lg">
+          <div class="subsection-label">Change Web Credentials</div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="new-username">New Username</label>
+              <input type="text" id="new-username" autocomplete="username" placeholder="admin">
+            </div>
+            <div class="form-group">
+              <label for="new-password">New Password</label>
+              <input type="password" id="new-password" autocomplete="new-password" placeholder="New password">
+            </div>
+          </div>
+          <button type="button" class="btn btn-primary" onclick="changePassword()">Update Credentials</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Cameras -->
+    <div class="section" id="section-cameras">
+      <div class="section-header">
+        <h1>Cameras</h1>
+        <button type="button" class="btn btn-primary" onclick="openCameraModal()">+ Add Camera</button>
+      </div>
+      <div class="card">
+        <div class="table-wrap">
+          <table id="cameras-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Groups</th>
+                <th>Labels</th>
+                <th>Schedule</th>
+                <th>Always Send</th>
+                <th>Snooze</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="cameras-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Groups -->
+    <div class="section" id="section-groups">
+      <div class="section-header">
+        <h1>Groups</h1>
+        <button type="button" class="btn btn-primary" onclick="openGroupModal()">+ Add Group</button>
+      </div>
+      <div class="card">
+        <div class="table-wrap">
+          <table id="groups-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Chat ID</th>
+                <th>Enabled</th>
+                <th>Always Send</th>
+                <th>Schedule</th>
+                <th>Description</th>
+                <th>Snooze</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="groups-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Snooze -->
+    <div class="section" id="section-snooze">
+      <div class="section-header">
+        <h1>Snooze</h1>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="clearAllSnoozes()" id="clear-all-btn" style="display:none">Clear All</button>
+      </div>
+
+      <div class="card">
+        <h2>💤 Active Snoozes</h2>
+        <div class="snooze-list" id="snooze-list">
+          <div class="empty-state"><div class="icon">✅</div>No active snoozes</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>➕ Add Snooze</h2>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Target Type</label>
+            <select id="snooze-type" onchange="updateSnoozeTargetOptions()">
+              <option value="global">Global (all alerts)</option>
+              <option value="camera">Camera</option>
+              <option value="group">Group</option>
+            </select>
+          </div>
+          <div class="form-group" id="snooze-target-wrap" hidden>
+            <label id="snooze-target-label">Target</label>
+            <select id="snooze-target-select"></select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Snooze Mode</label>
+            <select id="snooze-mode" onchange="updateSnoozeModeUI()">
+              <option value="duration">For a duration</option>
+              <option value="until">Until a specific time</option>
+            </select>
+          </div>
+          <div class="form-group" id="snooze-duration-wrap">
+            <label>Duration (minutes)</label>
+            <input type="number" id="snooze-duration" min="1" max="10080" value="60">
+          </div>
+          <div class="form-group" id="snooze-until-wrap" hidden>
+            <label>Until Date & Time</label>
+            <input type="datetime-local" id="snooze-until">
+          </div>
+        </div>
+        <button type="button" class="btn btn-warning" onclick="addSnooze()">💤 Set Snooze</button>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- Camera Modal -->
+<div class="modal-overlay" id="camera-modal-overlay">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="camera-modal-title">Add Camera</h3>
+      <button type="button" class="modal-close" onclick="closeCameraModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="camera-original-name">
+      <div class="form-group">
+        <label>Camera Name <span class="required-star">*</span></label>
+        <input type="text" id="camera-name" placeholder="front_door">
+        <div class="help-text">Must match the camera name in Frigate exactly.</div>
+      </div>
+      <div class="form-group">
+        <label>Groups</label>
+        <div class="multi-select" id="camera-groups-select"></div>
+        <div class="help-text">Leave empty to use default groups.</div>
+      </div>
+      <div class="form-group">
+        <label>Label Filter</label>
+        <div class="tags-input" id="camera-labels-input">
+          <input type="text" id="camera-labels-text" placeholder="Add label, press Enter (e.g. person, car)">
+        </div>
+        <div class="help-text">Leave empty to allow all labels.</div>
+      </div>
+      <div class="toggle-row toggle-row-md">
+        <div><div>Always Send</div><div class="toggle-desc">Override schedule and always alert</div></div>
+        <label class="toggle"><input type="checkbox" id="camera-always-send"><span class="slider"></span></label>
+      </div>
+      <div id="camera-schedule-section">
+        <div class="subsection-label">Schedule</div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Start Time</label>
+            <input type="time" id="camera-sched-start" value="00:00">
+          </div>
+          <div class="form-group">
+            <label>End Time</label>
+            <input type="time" id="camera-sched-end" value="23:59">
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-ghost" onclick="closeCameraModal()">Cancel</button>
+      <button type="button" class="btn btn-primary" onclick="saveCamera()">Save Camera</button>
+    </div>
+  </div>
+</div>
+
+<!-- Group Modal -->
+<div class="modal-overlay" id="group-modal-overlay">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="group-modal-title">Add Group</h3>
+      <button type="button" class="modal-close" onclick="closeGroupModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="group-original-name">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Group Name <span class="required-star">*</span></label>
+          <input type="text" id="group-name" placeholder="family">
+        </div>
+        <div class="form-group">
+          <label>Telegram Chat ID <span class="required-star">*</span></label>
+          <input type="text" id="group-chat-id" placeholder="-123456789">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Description</label>
+        <input type="text" id="group-description" placeholder="Family group">
+      </div>
+      <div class="toggle-row toggle-row-sm">
+        <div><div>Enabled</div><div class="toggle-desc">Uncheck to disable without removing</div></div>
+        <label class="toggle"><input type="checkbox" id="group-enabled" checked><span class="slider"></span></label>
+      </div>
+      <div class="toggle-row toggle-row-md">
+        <div><div>Always Send</div><div class="toggle-desc">Override schedule and always alert</div></div>
+        <label class="toggle"><input type="checkbox" id="group-always-send"><span class="slider"></span></label>
+      </div>
+      <div class="subsection-label">Schedule</div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Start Time</label>
+          <input type="time" id="group-sched-start" value="00:00">
+        </div>
+        <div class="form-group">
+          <label>End Time</label>
+          <input type="time" id="group-sched-end" value="23:59">
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-ghost" onclick="closeGroupModal()">Cancel</button>
+      <button type="button" class="btn btn-primary" onclick="saveGroup()">Save Group</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ── Auth ───────────────────────────────────────────────────────────────────
+function getToken() { return localStorage.getItem('fa_token'); }
+function setToken(t) { localStorage.setItem('fa_token', t); }
+function clearToken() { localStorage.removeItem('fa_token'); }
+
+function showLogin() {
+  document.getElementById('login-screen').classList.remove('hidden');
+}
+function hideLogin() {
+  document.getElementById('login-screen').classList.add('hidden');
+}
+
+async function doLogin() {
+  const username = document.getElementById('login-user').value.trim();
+  const password = document.getElementById('login-pass').value;
+  const errEl = document.getElementById('login-error');
+  const btn = document.getElementById('login-btn');
+  errEl.classList.remove('show');
+  btn.disabled = true;
+  btn.textContent = 'Signing in…';
+  try {
+    const r = await fetch('/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+    const data = await r.json();
+    if (!r.ok) { errEl.textContent = data.error || 'Login failed'; errEl.classList.add('show'); return; }
+    setToken(data.token);
+    document.getElementById('header-user').textContent = data.user;
+    hideLogin();
+    loadDashboard();
+  } catch (e) {
+    errEl.textContent = 'Could not reach server';
+    errEl.classList.add('show');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Sign In';
+  }
+}
+
+async function doLogout() {
+  const token = getToken();
+  if (token) await fetch('/auth/logout', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token } }).catch(() => {});
+  clearToken();
+  showLogin();
+}
+
+// Submit login on Enter key
+document.getElementById('login-pass').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+document.getElementById('login-user').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+
+// ── Authenticated fetch ────────────────────────────────────────────────────
+async function api(path, opts = {}) {
+  const token = getToken();
+  const res = await fetch('/api' + path, {
+    ...opts,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { 'Authorization': 'Bearer ' + token } : {}),
+      ...opts.headers,
+    },
+  });
+  if (res.status === 401) { showLogin(); throw new Error('Session expired'); }
+  return res.json();
+}
+
+// ── Toast ──────────────────────────────────────────────────────────────────
+function toast(msg, type = 'success') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'show ' + type;
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.className = '', 3000);
+}
+
+// ── Navigation ─────────────────────────────────────────────────────────────
+function nav(section) {
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.sidebar nav a').forEach(a => a.classList.remove('active'));
+  document.getElementById('section-' + section).classList.add('active');
+  document.querySelector(`[data-section="${section}"]`).classList.add('active');
+  if (section === 'cameras') loadCameras();
+  if (section === 'groups') loadGroups();
+  if (section === 'snooze') loadSnooze();
+  if (section === 'settings') loadSettings();
+  if (section === 'dashboard') loadDashboard();
+}
+document.querySelectorAll('.sidebar nav a[data-section]').forEach(a => {
+  a.addEventListener('click', () => nav(a.dataset.section));
+});
+
+// ── Status / Dashboard ─────────────────────────────────────────────────────
+async function loadDashboard() {
+  try {
+    const status = await api('/status');
+    document.getElementById('stat-service').textContent = 'Running';
+    document.getElementById('stat-uptime').textContent = formatUptime(status.uptime_seconds);
+    document.getElementById('stat-cameras').textContent = status.cameras_count;
+    document.getElementById('stat-groups').textContent = status.groups_count;
+    document.getElementById('info-frigate-api').textContent = status.frigate_api || '—';
+    document.getElementById('info-mqtt').textContent = status.mqtt_host || '—';
+    document.getElementById('status-dot').classList.remove('offline');
+    document.getElementById('status-text').innerHTML = '<span class="status-dot"></span> Running';
+
+    const snoozes = status.active_snoozes || {};
+    const count = Object.keys(snoozes).length;
+    document.getElementById('stat-snoozes').textContent = count;
+
+    updateSnoozeBanner(snoozes);
+    renderDashboardSnoozes(snoozes);
+  } catch (e) {
+    document.getElementById('status-dot').classList.add('offline');
+    document.getElementById('status-text').innerHTML = '<span class="status-dot offline"></span> Offline';
+  }
+}
+
+function formatUptime(secs) {
+  const h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60), s = secs % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
+function updateSnoozeBanner(snoozes) {
+  const banner = document.getElementById('snooze-banner');
+  const keys = Object.keys(snoozes);
+  if (keys.length === 0) { banner.classList.remove('active'); return; }
+  banner.classList.add('active');
+  const parts = keys.map(k => `${k} (${snoozes[k].remaining_display})`);
+  document.getElementById('snooze-banner-text').textContent = '💤 Snoozed: ' + parts.join(' · ');
+}
+
+function renderDashboardSnoozes(snoozes) {
+  const card = document.getElementById('active-snoozes-card');
+  const list = document.getElementById('dashboard-snooze-list');
+  const keys = Object.keys(snoozes);
+  card.hidden = keys.length === 0;
+  if (keys.length > 0) list.innerHTML = keys.map(target => snoozeItemHtml(target, snoozes[target])).join('');
+}
+
+// ── Settings ───────────────────────────────────────────────────────────────
+async function loadSettings() {
+  const cfg = await api('/config');
+  document.getElementById('cfg-frigate-api').value = cfg.frigate_api_url || '';
+  document.getElementById('cfg-bot-token').value = cfg.telegram_bot_token || '';
+  document.getElementById('cfg-webhook').value = cfg.webhook_url || '';
+  document.getElementById('cfg-media-delay').value = cfg.media_ready_delay_seconds ?? 5;
+  document.getElementById('cfg-retry-attempts').value = cfg.media_retry_attempts ?? 4;
+  document.getElementById('cfg-retry-delay').value = cfg.media_retry_delay_seconds ?? 3;
+  document.getElementById('cfg-mqtt-host').value = cfg.mqtt?.host || '';
+  document.getElementById('cfg-mqtt-prefix').value = cfg.mqtt?.topic_prefix || 'frigate';
+  document.getElementById('cfg-mqtt-user').value = cfg.mqtt?.username || '';
+  document.getElementById('cfg-mqtt-pass').value = cfg.mqtt?.password || '';
+  const sched = cfg.default_schedule || {};
+  document.getElementById('cfg-sched-start').value = sched.start_time || '00:00';
+  document.getElementById('cfg-sched-end').value = sched.end_time || '23:59';
+  document.getElementById('cfg-sched-always').checked = sched.always_send || false;
+  document.getElementById('cfg-default-groups').value = (cfg.default_groups || []).join(', ');
+}
+
+async function saveGeneralSettings() {
+  const updates = {
+    frigate_api_url: document.getElementById('cfg-frigate-api').value,
+    telegram_bot_token: document.getElementById('cfg-bot-token').value || undefined,
+    webhook_url: document.getElementById('cfg-webhook').value || null,
+    media_ready_delay_seconds: Number(document.getElementById('cfg-media-delay').value),
+    media_retry_attempts: Number(document.getElementById('cfg-retry-attempts').value),
+    media_retry_delay_seconds: Number(document.getElementById('cfg-retry-delay').value),
+  };
+  if (!updates.telegram_bot_token) delete updates.telegram_bot_token;
+  try {
+    await api('/config', { method: 'PATCH', body: JSON.stringify(updates) });
+    toast('General settings saved');
+  } catch (e) { toast('Failed to save: ' + e.message, 'error'); }
+}
+
+async function saveMqttSettings() {
+  const updates = {
+    mqtt: {
+      host: document.getElementById('cfg-mqtt-host').value,
+      topic_prefix: document.getElementById('cfg-mqtt-prefix').value || 'frigate',
+      username: document.getElementById('cfg-mqtt-user').value || null,
+      password: document.getElementById('cfg-mqtt-pass').value || null,
+    }
+  };
+  try {
+    await api('/config', { method: 'PATCH', body: JSON.stringify(updates) });
+    toast('MQTT settings saved');
+  } catch (e) { toast('Failed to save: ' + e.message, 'error'); }
+}
+
+async function saveScheduleSettings() {
+  const defaultGroups = document.getElementById('cfg-default-groups').value
+    .split(',').map(s => s.trim()).filter(Boolean);
+  const updates = {
+    default_schedule: {
+      start_time: document.getElementById('cfg-sched-start').value,
+      end_time: document.getElementById('cfg-sched-end').value,
+      always_send: document.getElementById('cfg-sched-always').checked,
+    },
+    default_groups: defaultGroups,
+  };
+  try {
+    await api('/config', { method: 'PATCH', body: JSON.stringify(updates) });
+    toast('Schedule & groups saved');
+  } catch (e) { toast('Failed to save: ' + e.message, 'error'); }
+}
+
+// ── Cameras ────────────────────────────────────────────────────────────────
+let cameraData = {}, groupData = {};
+
+async function loadCameras() {
+  [cameraData, groupData] = await Promise.all([api('/cameras'), api('/groups')]);
+  const tbody = document.getElementById('cameras-tbody');
+  const entries = Object.entries(cameraData);
+  if (entries.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-state"><div class="icon">📹</div>No cameras configured</td></tr>';
+    return;
+  }
+  tbody.innerHTML = entries.map(([name, cam]) => {
+    const groups = (cam.groups || []).join(', ') || '<span style="color:var(--text2)">default</span>';
+    const labels = (cam.labels || []).join(', ') || '<span style="color:var(--text2)">all</span>';
+    const sched = cam.schedule ? `${cam.schedule.start_time}–${cam.schedule.end_time}` : '<span style="color:var(--text2)">default</span>';
+    const alwaysSend = cam.always_send
+      ? '<span class="badge badge-green">Yes</span>'
+      : '<span class="badge badge-red">No</span>';
+    return `<tr>
+      <td><strong>${name}</strong></td>
+      <td>${groups}</td>
+      <td>${labels}</td>
+      <td style="font-size:12px">${sched}</td>
+      <td>${alwaysSend}</td>
+      <td><button class="btn btn-warning btn-sm" onclick="quickSnooze('camera:${name}',30)">💤 30m</button></td>
+      <td style="display:flex;gap:6px">
+        <button class="btn btn-ghost btn-sm" onclick="editCamera('${name}')">Edit</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteCamera('${name}')">Del</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function openCameraModal(name, data) {
+  document.getElementById('camera-modal-title').textContent = name ? 'Edit Camera' : 'Add Camera';
+  document.getElementById('camera-original-name').value = name || '';
+  document.getElementById('camera-name').value = name || '';
+  document.getElementById('camera-name').disabled = !!name;
+  document.getElementById('camera-always-send').checked = data?.always_send || false;
+  document.getElementById('camera-sched-start').value = data?.schedule?.start_time || '00:00';
+  document.getElementById('camera-sched-end').value = data?.schedule?.end_time || '23:59';
+
+  // Build group checkboxes
+  const groupSelect = document.getElementById('camera-groups-select');
+  const selectedGroups = data?.groups || [];
+  groupSelect.innerHTML = Object.keys(groupData).map(g =>
+    `<label><input type="checkbox" value="${g}" ${selectedGroups.includes(g) ? 'checked' : ''}>${g}</label>`
+  ).join('');
+  if (Object.keys(groupData).length === 0) groupSelect.innerHTML = '<div style="color:var(--text2);font-size:12px;padding:4px">No groups defined yet</div>';
+
+  // Build label tags
+  const labelsInput = document.getElementById('camera-labels-input');
+  const tagsContainer = labelsInput;
+  const existingTags = tagsContainer.querySelectorAll('.tag');
+  existingTags.forEach(t => t.remove());
+  (data?.labels || []).forEach(l => addTag(l));
+
+  document.getElementById('camera-modal-overlay').classList.add('open');
+}
+
+function closeCameraModal() {
+  document.getElementById('camera-modal-overlay').classList.remove('open');
+}
+
+function editCamera(name) {
+  openCameraModal(name, cameraData[name]);
+}
+
+async function deleteCamera(name) {
+  if (!confirm(`Delete camera "${name}"?`)) return;
+  try {
+    await api('/cameras/' + encodeURIComponent(name), { method: 'DELETE' });
+    toast(`Camera "${name}" deleted`);
+    loadCameras();
+  } catch (e) { toast('Delete failed: ' + e.message, 'error'); }
+}
+
+async function saveCamera() {
+  const originalName = document.getElementById('camera-original-name').value;
+  const name = document.getElementById('camera-name').value.trim();
+  if (!name) { toast('Camera name is required', 'error'); return; }
+
+  const selectedGroups = [...document.querySelectorAll('#camera-groups-select input:checked')].map(i => i.value);
+  const labels = [...document.querySelectorAll('#camera-labels-input .tag')].map(t => t.dataset.value);
+  const alwaysSend = document.getElementById('camera-always-send').checked;
+  const schedStart = document.getElementById('camera-sched-start').value;
+  const schedEnd = document.getElementById('camera-sched-end').value;
+
+  const payload = {};
+  if (selectedGroups.length > 0) payload.groups = selectedGroups;
+  if (labels.length > 0) payload.labels = labels;
+  if (alwaysSend) payload.always_send = true;
+  if (schedStart !== '00:00' || schedEnd !== '23:59') {
+    payload.schedule = { start_time: schedStart, end_time: schedEnd };
+  }
+
+  try {
+    if (originalName) {
+      await api('/cameras/' + encodeURIComponent(originalName), { method: 'PUT', body: JSON.stringify(payload) });
+    } else {
+      await api('/cameras', { method: 'POST', body: JSON.stringify({ name, ...payload }) });
+    }
+    toast('Camera saved');
+    closeCameraModal();
+    loadCameras();
+  } catch (e) { toast('Save failed: ' + e.message, 'error'); }
+}
+
+// Label tag management
+function addTag(value) {
+  const container = document.getElementById('camera-labels-input');
+  const input = document.getElementById('camera-labels-text');
+  const tag = document.createElement('span');
+  tag.className = 'tag';
+  tag.dataset.value = value;
+  tag.innerHTML = `${value}<span class="tag-remove" onclick="this.parentElement.remove()">×</span>`;
+  container.insertBefore(tag, input);
+}
+document.getElementById('camera-labels-text')?.addEventListener('keydown', e => {
+  if (e.key === 'Enter' || e.key === ',') {
+    e.preventDefault();
+    const val = e.target.value.trim().replace(/,$/, '');
+    if (val) { addTag(val); e.target.value = ''; }
+  }
+});
+
+// ── Groups ─────────────────────────────────────────────────────────────────
+async function loadGroups() {
+  groupData = await api('/groups');
+  const tbody = document.getElementById('groups-tbody');
+  const entries = Object.entries(groupData);
+  if (entries.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="8" class="empty-state"><div class="icon">👥</div>No groups configured</td></tr>';
+    return;
+  }
+  tbody.innerHTML = entries.map(([name, g]) => {
+    const enabled = g.enabled !== false
+      ? '<span class="badge badge-green">Yes</span>'
+      : '<span class="badge badge-red">No</span>';
+    const always = g.always_send
+      ? '<span class="badge badge-green">Yes</span>'
+      : '<span class="badge badge-red">No</span>';
+    const sched = g.schedule
+      ? `${g.schedule.start_time}–${g.schedule.end_time}`
+      : '<span style="color:var(--text2)">default</span>';
+    return `<tr>
+      <td><strong>${name}</strong></td>
+      <td style="font-family:monospace;font-size:12px">${g.chat_id}</td>
+      <td>${enabled}</td>
+      <td>${always}</td>
+      <td style="font-size:12px">${sched}</td>
+      <td style="color:var(--text2);font-size:12px">${g.description || ''}</td>
+      <td><button class="btn btn-warning btn-sm" onclick="quickSnooze('group:${name}',30)">💤 30m</button></td>
+      <td style="display:flex;gap:6px">
+        <button class="btn btn-ghost btn-sm" onclick="editGroup('${name}')">Edit</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteGroup('${name}')">Del</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function openGroupModal(name, data) {
+  document.getElementById('group-modal-title').textContent = name ? 'Edit Group' : 'Add Group';
+  document.getElementById('group-original-name').value = name || '';
+  document.getElementById('group-name').value = name || '';
+  document.getElementById('group-name').disabled = !!name;
+  document.getElementById('group-chat-id').value = data?.chat_id || '';
+  document.getElementById('group-description').value = data?.description || '';
+  document.getElementById('group-enabled').checked = data?.enabled !== false;
+  document.getElementById('group-always-send').checked = data?.always_send || false;
+  document.getElementById('group-sched-start').value = data?.schedule?.start_time || '00:00';
+  document.getElementById('group-sched-end').value = data?.schedule?.end_time || '23:59';
+  document.getElementById('group-modal-overlay').classList.add('open');
+}
+
+function closeGroupModal() {
+  document.getElementById('group-modal-overlay').classList.remove('open');
+}
+
+function editGroup(name) {
+  openGroupModal(name, groupData[name]);
+}
+
+async function deleteGroup(name) {
+  if (!confirm(`Delete group "${name}"?`)) return;
+  try {
+    await api('/groups/' + encodeURIComponent(name), { method: 'DELETE' });
+    toast(`Group "${name}" deleted`);
+    loadGroups();
+  } catch (e) { toast('Delete failed: ' + e.message, 'error'); }
+}
+
+async function saveGroup() {
+  const originalName = document.getElementById('group-original-name').value;
+  const name = document.getElementById('group-name').value.trim();
+  const chatId = document.getElementById('group-chat-id').value.trim();
+  if (!name) { toast('Group name is required', 'error'); return; }
+  if (!chatId) { toast('Chat ID is required', 'error'); return; }
+
+  const schedStart = document.getElementById('group-sched-start').value;
+  const schedEnd = document.getElementById('group-sched-end').value;
+  const hasSchedule = schedStart !== '00:00' || schedEnd !== '23:59';
+
+  const payload = {
+    chat_id: chatId,
+    enabled: document.getElementById('group-enabled').checked,
+    always_send: document.getElementById('group-always-send').checked,
+  };
+  const desc = document.getElementById('group-description').value.trim();
+  if (desc) payload.description = desc;
+  if (hasSchedule) payload.schedule = { start_time: schedStart, end_time: schedEnd };
+
+  try {
+    if (originalName) {
+      await api('/groups/' + encodeURIComponent(originalName), { method: 'PUT', body: JSON.stringify(payload) });
+    } else {
+      await api('/groups', { method: 'POST', body: JSON.stringify({ name, ...payload }) });
+    }
+    toast('Group saved');
+    closeGroupModal();
+    loadGroups();
+  } catch (e) { toast('Save failed: ' + e.message, 'error'); }
+}
+
+// ── Snooze ─────────────────────────────────────────────────────────────────
+function snoozeItemHtml(target, data) {
+  const encodedTarget = encodeURIComponent(target);
+  return `<div class="snooze-item">
+    <div>
+      <div class="snooze-target">💤 ${target}</div>
+      <div class="snooze-until">${data.until_display}</div>
+    </div>
+    <div class="snooze-remaining">${data.remaining_display} left</div>
+    <button class="btn btn-danger btn-sm" onclick="clearSnooze('${target.replace(/'/g,"\\'")}')">Clear</button>
+  </div>`;
+}
+
+async function loadSnooze() {
+  const snoozes = await api('/snooze');
+  const list = document.getElementById('snooze-list');
+  const clearAllBtn = document.getElementById('clear-all-btn');
+  const keys = Object.keys(snoozes);
+
+  updateSnoozeBanner(snoozes);
+
+  if (keys.length === 0) {
+    list.innerHTML = '<div class="empty-state"><div class="icon">✅</div>No active snoozes — all alerts are running normally.</div>';
+    clearAllBtn.hidden = true;
+    return;
+  }
+  clearAllBtn.hidden = false;
+  list.innerHTML = keys.map(k => snoozeItemHtml(k, snoozes[k])).join('');
+
+  // Also update camera/group options
+  const [cameras, groups] = await Promise.all([api('/cameras'), api('/groups')]);
+  cameraData = cameras; groupData = groups;
+  updateSnoozeTargetOptions();
+}
+
+async function addSnooze() {
+  const type = document.getElementById('snooze-type').value;
+  let target;
+  if (type === 'global') {
+    target = 'global';
+  } else {
+    const sel = document.getElementById('snooze-target-select').value;
+    if (!sel) { toast('Please select a target', 'error'); return; }
+    target = type + ':' + sel;
+  }
+
+  const mode = document.getElementById('snooze-mode').value;
+  const body = { target };
+  if (mode === 'duration') {
+    body.duration_minutes = Number(document.getElementById('snooze-duration').value);
+  } else {
+    const until = document.getElementById('snooze-until').value;
+    if (!until) { toast('Please pick a date/time', 'error'); return; }
+    body.until_datetime = new Date(until).toISOString();
+  }
+
+  try {
+    await api('/snooze', { method: 'POST', body: JSON.stringify(body) });
+    toast('Snooze set');
+    loadSnooze();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function clearSnooze(target) {
+  await api('/snooze/' + encodeURIComponent(target), { method: 'DELETE' });
+  toast('Snooze cleared');
+  loadSnooze();
+  loadDashboard();
+}
+
+async function clearAllSnoozes() {
+  await api('/snooze', { method: 'DELETE' });
+  toast('All snoozes cleared');
+  loadSnooze();
+  loadDashboard();
+}
+
+async function quickSnooze(target, minutes) {
+  await api('/snooze', { method: 'POST', body: JSON.stringify({ target, duration_minutes: minutes }) });
+  toast(`Snoozed ${target} for ${minutes} minutes`);
+  loadDashboard();
+}
+
+function updateSnoozeTargetOptions() {
+  const type = document.getElementById('snooze-type').value;
+  const wrap = document.getElementById('snooze-target-wrap');
+  const label = document.getElementById('snooze-target-label');
+  const sel = document.getElementById('snooze-target-select');
+  wrap.hidden = type === 'global';
+  if (type === 'global') return;
+  label.textContent = type === 'camera' ? 'Camera' : 'Group';
+  const options = type === 'camera' ? Object.keys(cameraData) : Object.keys(groupData);
+  sel.innerHTML = options.map(o => `<option value="${o}">${o}</option>`).join('');
+  if (options.length === 0) sel.innerHTML = `<option disabled>No ${type}s configured</option>`;
+}
+
+function updateSnoozeModeUI() {
+  const mode = document.getElementById('snooze-mode').value;
+  document.getElementById('snooze-duration-wrap').hidden = mode !== 'duration';
+  document.getElementById('snooze-until-wrap').hidden = mode !== 'until';
+}
+
+// ── MCP Token management ───────────────────────────────────────────────────
+const SCOPE_LABELS = { snooze: 'badge-yellow', admin: 'badge-blue' };
+
+async function loadMcpTokens() {
+  try {
+    const tokens = await api('/auth/mcp-tokens');
+    const tbody = document.getElementById('mcp-tokens-tbody');
+    if (!tokens.length) {
+      tbody.innerHTML = '<tr><td colspan="5" class="td-muted">No tokens yet</td></tr>';
+      return;
+    }
+    tbody.innerHTML = tokens.map(t => `
+      <tr>
+        <td><strong>${t.name}</strong></td>
+        <td><span class="badge ${SCOPE_LABELS[t.scope] || 'badge-blue'}">${t.scope}</span></td>
+        <td><code style="font-size:11px">${t.token_preview}</code></td>
+        <td style="font-size:11px;color:var(--text2)">${new Date(t.created).toLocaleDateString()}</td>
+        <td style="display:flex;gap:6px">
+          <button type="button" class="btn btn-ghost btn-sm" onclick="copyMcpToken('${t.id}')">Copy</button>
+          <button type="button" class="btn btn-danger btn-sm" onclick="deleteMcpToken('${t.id}')">Delete</button>
+        </td>
+      </tr>`).join('');
+  } catch (e) { /* handled by api() */ }
+}
+
+async function createMcpToken() {
+  const name = document.getElementById('new-token-name').value.trim();
+  const scope = document.getElementById('new-token-scope').value;
+  if (!name) { toast('Token name is required', 'error'); return; }
+  try {
+    const data = await api('/auth/mcp-tokens', { method: 'POST', body: JSON.stringify({ name, scope }) });
+    document.getElementById('new-token-value').textContent = data.token;
+    document.getElementById('new-token-reveal').style.display = 'block';
+    document.getElementById('new-token-name').value = '';
+    toast('Token created');
+    loadMcpTokens();
+  } catch (e) { toast('Failed to create token: ' + e.message, 'error'); }
+}
+
+async function copyMcpToken(id) {
+  try {
+    const data = await api('/auth/mcp-tokens/' + id + '/value');
+    await navigator.clipboard.writeText(data.token);
+    toast('Token copied to clipboard');
+  } catch (e) { toast('Failed to copy token', 'error'); }
+}
+
+async function deleteMcpToken(id) {
+  if (!confirm('Delete this MCP token? Any client using it will lose access immediately.')) return;
+  try {
+    await api('/auth/mcp-tokens/' + id, { method: 'DELETE' });
+    toast('Token deleted');
+    loadMcpTokens();
+  } catch (e) { toast('Failed to delete token', 'error'); }
+}
+
+function copyNewToken() {
+  const text = document.getElementById('new-token-value').textContent;
+  navigator.clipboard.writeText(text);
+  toast('Token copied to clipboard');
+}
+
+async function changePassword() {
+  const username = document.getElementById('new-username').value.trim();
+  const password = document.getElementById('new-password').value;
+  if (!username || !password) { toast('Username and password are required', 'error'); return; }
+  try {
+    await api('/auth/password', { method: 'POST', body: JSON.stringify({ username, password }) });
+    toast('Credentials updated — you will need to sign in again');
+    document.getElementById('new-username').value = '';
+    document.getElementById('new-password').value = '';
+    setTimeout(doLogout, 1500);
+  } catch (e) { toast('Failed to update credentials', 'error'); }
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────
+async function refreshAll() {
+  const section = document.querySelector('.section.active').id.replace('section-', '');
+  loadDashboard();
+  if (section === 'cameras') loadCameras();
+  if (section === 'groups') loadGroups();
+  if (section === 'snooze') loadSnooze();
+  if (section === 'settings') { loadSettings(); loadMcpTokens(); }
+}
+
+// Load MCP tokens when settings tab is opened
+document.querySelector('[data-section="settings"]').addEventListener('click', loadMcpTokens);
+
+// Set default datetime-local to now+1h
+const now = new Date(Date.now() + 3600000);
+document.getElementById('snooze-until').value = now.toISOString().slice(0, 16);
+
+// Close modals on overlay click
+document.getElementById('camera-modal-overlay').addEventListener('click', e => { if (e.target === e.currentTarget) closeCameraModal(); });
+document.getElementById('group-modal-overlay').addEventListener('click', e => { if (e.target === e.currentTarget) closeGroupModal(); });
+
+// Validate existing session on load, then start app
+(async () => {
+  const token = getToken();
+  if (token) {
+    try {
+      const r = await fetch('/auth/me', { headers: { 'Authorization': 'Bearer ' + token } });
+      if (r.ok) {
+        const data = await r.json();
+        document.getElementById('header-user').textContent = data.user;
+        hideLogin();
+        loadDashboard();
+        Promise.all([api('/cameras'), api('/groups')]).then(([c, g]) => { cameraData = c; groupData = g; updateSnoozeTargetOptions(); });
+        setInterval(loadDashboard, 30000);
+        return;
+      }
+    } catch (e) { /* fall through to login */ }
+    clearToken();
+  }
+  showLogin();
+})();
+</script>
+</body>
+</html>

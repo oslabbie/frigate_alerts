@@ -6,6 +6,7 @@ const {
     MEDIA_RETRY_DELAY_MS,
     getGroupsToAlert,
 } = require("./config");
+const snooze = require("./snooze");
 
 /**
  * Send a message to a specific Telegram chat
@@ -86,7 +87,7 @@ async function sendMediaToTelegram(chatId, buffer, caption, fileName) {
  * @returns {boolean} true if media was sent to all groups successfully
  */
 async function sendMediaAlertToGroups(event, mediaBuffer, message, fileName) {
-    const groups = getGroupsToAlert(event);
+    const groups = getGroupsToAlert(event).filter((g) => !snooze.shouldSnooze(event.camera, g.name));
 
     if (groups.length === 0) {
         console.log(`⚠️ No groups configured for camera: ${event.camera}`);
@@ -114,7 +115,7 @@ async function sendMediaAlertToGroups(event, mediaBuffer, message, fileName) {
  * @param {string} message
  */
 async function sendTextAlertToGroups(event, message) {
-    const groups = getGroupsToAlert(event);
+    const groups = getGroupsToAlert(event).filter((g) => !snooze.shouldSnooze(event.camera, g.name));
 
     if (groups.length === 0) return;
 

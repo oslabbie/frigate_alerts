@@ -8,10 +8,13 @@ const {
     getScheduleForCameraAndGroup,
     shouldAlertAnyGroup,
     isLabelAllowed,
+    reloadConfig,
 } = require("./config");
 const { sendMediaAlertToGroups, sendTextAlertToGroups } = require("./telegram");
 const { fetchEvents, getMediaDownloaders, triggerWebhook } = require("./frigate");
 const { connect, disconnect } = require("./mqtt");
+const snooze = require("./snooze");
+const { startServer, setReloadConfigFn } = require("./server");
 
 const processedEvents = new Set();
 const pendingEvents = new Map();
@@ -44,6 +47,10 @@ function handleMqttEvent(payload) {
 
         if (!isLabelAllowed(event)) {
             console.log(`🏷️ Event ${event.id} label "${event.label}" not allowed for ${event.camera}`);
+            return;
+        }
+        if (snooze.shouldSnooze(event.camera, null)) {
+            console.log(`💤 Event ${event.id} suppressed by snooze for ${event.camera}`);
             return;
         }
         if (!shouldAlertAnyGroup(event)) {
@@ -250,6 +257,8 @@ process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
 
 // Start the service
+setReloadConfigFn(reloadConfig);
+startServer(config.server_port);
 printConfigSummary();
 catchUpMissedEvents().then(() => {
     connect(MQTT_CONFIG, handleMqttEvent);
