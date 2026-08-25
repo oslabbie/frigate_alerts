@@ -15,22 +15,25 @@ function connect(mqttConfig, onEvent) {
 
     client = mqtt.connect(mqttConfig.host, options);
     const prefix = mqttConfig.topic_prefix || "frigate";
+    const source = mqttConfig.source || "events";
+    const topic = `${prefix}/${source}`;
 
     client.on("connect", () => {
         console.log(`✅ Connected to MQTT broker at ${mqttConfig.host}`);
-        client.subscribe(`${prefix}/events`, (err) => {
+        client.subscribe(topic, (err) => {
             if (err) {
-                console.error("❌ Failed to subscribe to events:", err.message);
+                console.error(`❌ Failed to subscribe to ${topic}:`, err.message);
             } else {
-                console.log(`📡 Subscribed to ${prefix}/events`);
+                console.log(`📡 Subscribed to ${topic}`);
             }
         });
     });
 
-    client.on("message", (topic, message) => {
+    client.on("message", (msgTopic, message) => {
         try {
             const payload = JSON.parse(message.toString());
-            onEvent(payload);
+            // Second argument is additive - existing callbacks ignore it.
+            onEvent(payload, msgTopic);
         } catch (e) {
             console.error("❌ Failed to parse MQTT message:", e.message);
         }

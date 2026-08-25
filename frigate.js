@@ -65,7 +65,9 @@ async function downloadVideo(event) {
  * @returns {Promise<Buffer>}
  */
 async function downloadSnapshot(event) {
-    const url = `${FRIGATE_API_URL}/events/${event.id}/snapshot.jpg`;
+    // A review's own id has no snapshot endpoint; it carries the id of a
+    // detection inside it instead. Falls back to event.id for plain events.
+    const url = `${FRIGATE_API_URL}/events/${event.snapshot_id || event.id}/snapshot.jpg`;
     const response = await axios.get(url, { responseType: "arraybuffer" });
     return Buffer.from(response.data, "binary");
 }

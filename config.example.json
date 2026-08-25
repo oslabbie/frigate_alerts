@@ -4,6 +4,19 @@
     "poll_interval_seconds": 10,
     "webhook_url": null,
 
+    "mqtt": {
+        "host": "mqtt://frigate:1883",
+        "topic_prefix": "frigate",
+        "username": null,
+        "password": null,
+
+        "_comment_source": "Which Frigate stream to alert from. 'events' (default) fires the moment Frigate starts tracking an object - Frigate may later discard it as a false positive, leaving an alert with nothing behind it in the UI. 'reviews' uses Frigate's curated review segments, the same stream the UI shows, and consolidates several detections into one alert.",
+        "source": "events",
+
+        "_comment_review_severities": "Review severities worth alerting on. Only used when source is 'reviews'.",
+        "review_severities": ["alert"]
+    },
+
     "default_schedule": {
         "start_time": "00:00",
         "end_time": "23:59",

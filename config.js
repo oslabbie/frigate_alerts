@@ -31,7 +31,26 @@ const MQTT_CONFIG = {
     topic_prefix: config.mqtt?.topic_prefix || "frigate",
     username: config.mqtt?.username || process.env.MQTT_USERNAME || null,
     password: config.mqtt?.password || process.env.MQTT_PASSWORD || null,
+
+    // Which Frigate stream to alert from. Defaults to "events" so existing
+    // configs are unaffected.
+    //
+    //   events  - fires as soon as Frigate starts tracking an object. Frigate
+    //             may later discard that object as a false positive and delete
+    //             the event, leaving an alert that matches nothing in the UI.
+    //   reviews - fires on Frigate's curated review segments, the same stream
+    //             the UI shows. Discarded detections never become reviews, and
+    //             several detections are consolidated into one review.
+    source: config.mqtt?.source || process.env.MQTT_SOURCE || "events",
+
+    // Review severities worth alerting on (source: "reviews" only).
+    review_severities: config.mqtt?.review_severities || ["alert"],
 };
+
+if (!["events", "reviews"].includes(MQTT_CONFIG.source)) {
+    console.error(`❌ Invalid mqtt.source "${MQTT_CONFIG.source}" - expected "events" or "reviews"`);
+    process.exit(1);
+}
 
 // Validate required configuration
 if (!TELEGRAM_BOT_TOKEN) {
@@ -271,7 +290,9 @@ function shouldAlertAnyGroup(event) {
 function isLabelAllowed(event) {
     const allowedLabels = getAllowedLabels(event.camera);
     if (!allowedLabels) return true; // No filter = all labels allowed
-    return allowedLabels.includes(event.label);
+    // Reviews carry several objects; events carry one. Allow either.
+    const labels = event.labels?.length ? event.labels : [event.label];
+    return labels.some((label) => allowedLabels.includes(label));
 }
 
 /**

@@ -96,6 +96,103 @@ function handleMqttEvent(payload) {
 }
 
 /**
+ * Convert a Frigate review segment into the event shape the rest of the
+ * pipeline already understands.
+ *
+ * A review groups several detections over one stretch of activity, so it has a
+ * list of objects rather than a single label. `snapshot_id` points at a real
+ * detection because a review id has no snapshot endpoint of its own.
+ *
+ * @param {Object} review - the `after` body of a frigate/reviews message
+ * @returns {Object} event-shaped object
+ */
+function reviewToEvent(review) {
+    const objects = [...new Set(review.data?.objects || [])];
+    const detections = review.data?.detections || [];
+    return {
+        id: review.id,
+        snapshot_id: detections[0] || review.id,
+        camera: review.camera,
+        label: objects.join(", ") || "activity",
+        labels: objects,
+        start_time: review.start_time,
+        end_time: review.end_time,
+        severity: review.severity,
+        detection_count: detections.length,
+        zones: review.data?.zones || [],
+        is_review: true,
+    };
+}
+
+/**
+ * Handle incoming MQTT message from the frigate/reviews topic.
+ *
+ * Reviews are Frigate's curated stream — the same one the UI shows. Detections
+ * that Frigate later discards as false positives never become reviews, so
+ * alerting from here cannot produce a notification with nothing behind it.
+ *
+ * @param {Object} payload - MQTT message payload with type, before, after
+ */
+function handleMqttReview(payload) {
+    const { type } = payload;
+    const review = payload.after;
+
+    if (!review || !review.id) return;
+    if (!MQTT_CONFIG.review_severities.includes(review.severity)) return;
+
+    const event = reviewToEvent(review);
+
+    if (type === "new") {
+        if (processedEvents.has(event.id)) return;
+        if (!isLabelAllowed(event)) {
+            console.log(`🏷️ Review ${event.id} objects "${event.label}" not allowed for ${event.camera}`);
+            return;
+        }
+        if (snooze.shouldSnooze(event.camera, null)) {
+            console.log(`💤 Review ${event.id} suppressed by snooze for ${event.camera}`);
+            return;
+        }
+        if (!shouldAlertAnyGroup(event)) {
+            console.log(`⏰ Review ${event.id} outside schedule for ${event.camera}`);
+            return;
+        }
+
+        console.log(`📡 New review (${review.severity}): ${event.label} on ${event.camera} [${event.id}]`);
+
+        // Wait for the review to close so the detection list is complete. If it
+        // never closes, fall back so an alert still goes out.
+        const timer = setTimeout(() => {
+            if (processedEvents.has(event.id)) return;
+            pendingEvents.delete(event.id);
+            processedEvents.add(event.id);
+            pruneProcessedEvents();
+            console.log(`⏰ Review ${event.id} timed out waiting for end, processing now`);
+            processEvent({ ...event, end_time: event.start_time + 10 });
+        }, EVENT_END_TIMEOUT_MS);
+
+        pendingEvents.set(event.id, { event, timer });
+    } else if (type === "end") {
+        if (processedEvents.has(event.id)) return;
+
+        const pending = pendingEvents.get(event.id);
+        if (pending) {
+            clearTimeout(pending.timer);
+            pendingEvents.delete(event.id);
+        }
+
+        if (!isLabelAllowed(event)) return;
+        if (!shouldAlertAnyGroup(event)) return;
+
+        processedEvents.add(event.id);
+        pruneProcessedEvents();
+
+        console.log(`🏁 Review ended: ${event.label} on ${event.camera} [${event.id}] (${event.detection_count} detection(s))`);
+
+        setTimeout(() => processEvent(event), MEDIA_READY_DELAY_MS);
+    }
+}
+
+/**
  * Process a single Frigate event — download media and send alerts
  * @param {Object} event
  */
@@ -105,9 +202,13 @@ async function processEvent(event) {
         ? "🔔 Always Send"
         : `⏰ ${schedule.start_time} - ${schedule.end_time}`;
 
+    const detail = event.is_review && event.detection_count > 1
+        ? ` (${event.detection_count} detections)`
+        : "";
+
     const message = `🚨 <b>Frigate Alert!</b>
 📷 Camera: ${event.camera}
-📌 Object: ${event.label}
+📌 Object: ${event.label}${detail}
 ⏳ Time: ${new Date(event.start_time * 1000).toLocaleString()}
 ${scheduleInfo}`;
 
@@ -174,7 +275,7 @@ function printConfigSummary() {
     console.log("\n📋 Configuration Summary:");
     console.log(`   Frigate API: ${FRIGATE_API_URL}`);
     console.log(`   MQTT Broker: ${MQTT_CONFIG.host}`);
-    console.log(`   MQTT Topic: ${MQTT_CONFIG.topic_prefix}/events`);
+    console.log(`   MQTT Topic: ${MQTT_CONFIG.topic_prefix}/${MQTT_CONFIG.source}`);
     console.log(`   Media Ready Delay: ${MEDIA_READY_DELAY_MS / 1000}s`);
     console.log(`   Webhook: ${WEBHOOK_URL || "Not configured"}`);
 
@@ -261,6 +362,6 @@ setReloadConfigFn(reloadConfig);
 startServer(config.server_port);
 printConfigSummary();
 catchUpMissedEvents().then(() => {
-    connect(MQTT_CONFIG, handleMqttEvent);
+    connect(MQTT_CONFIG, MQTT_CONFIG.source === "reviews" ? handleMqttReview : handleMqttEvent);
     console.log("🚀 Frigate event listener started (MQTT mode)\n");
 });
