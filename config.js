@@ -89,8 +89,12 @@ function getGroupNamesForCamera(cameraName) {
 
 /**
  * Get enabled groups that should receive alerts for a camera
+ *
+ * A group may also carry a thread_id (a topic in a forum group: its alerts
+ * go there instead of General) and labels (only those objects alert it, so
+ * one chat can have a topic for persons and another for cars).
  * @param {string} cameraName
- * @returns {Array<{name: string, chat_id: string}>}
+ * @returns {Array<{name: string, chat_id: string, thread_id: number|null, labels: Array<string>|null}>}
  */
 function getGroupsForCamera(cameraName) {
     const groupNames = getGroupNamesForCamera(cameraName);
@@ -100,8 +104,24 @@ function getGroupsForCamera(cameraName) {
         .map((name) => ({
             name,
             chat_id: config.groups[name]?.chat_id,
+            thread_id: Number(config.groups[name]?.thread_id) || null,
+            labels: config.groups[name]?.labels?.length ? config.groups[name].labels : null,
         }))
         .filter((g) => g.chat_id);
+}
+
+/**
+ * Check if an event's objects are among the ones a group takes
+ * @param {Object} event
+ * @param {{labels: Array<string>|null}} group
+ * @returns {boolean}
+ */
+function groupTakesLabel(event, group) {
+    if (!group.labels) return true; // No filter = every object
+    // Reviews carry several objects; events carry one. Either one matching is enough,
+    // so a review with a person and a car goes to both a persons and a cars topic.
+    const labels = event.labels?.length ? event.labels : [event.label];
+    return labels.some((label) => group.labels.includes(label));
 }
 
 /**
@@ -235,6 +255,7 @@ function getGroupsToAlert(event) {
     const allGroups = getGroupsForCamera(event.camera);
 
     return allGroups
+        .filter((group) => groupTakesLabel(event, group))
         .filter((group) => shouldAlertGroup(event.camera, group.name))
         .map((group) => ({
             ...group,
@@ -300,6 +321,48 @@ function isLabelAllowed(event) {
  * All functions that read from `config` will see the updated values immediately.
  * Infrastructure constants (tokens, URLs) still require a restart to take effect.
  */
+// Alert videos. "original" sends Frigate's clip as it is; "compressed" shrinks
+// any clip over video.max_mb before it goes out. Either way a clip over
+// Telegram's own upload limit (50 MB for bots) is shrunk, as Telegram would
+// refuse it. Shrinking needs a transcoder (video.transcoder_socket); without
+// one, or if it fails, the original goes out as before.
+const VIDEO_QUALITIES = ["original", "compressed"];
+
+/**
+ * The video settings, read from the live config so a reload applies them.
+ * @returns {{quality: string, max_mb: number, transcoder_socket: string|null, timeout_seconds: number}}
+ */
+function getVideoSettings() {
+    const video = config.video || {};
+    const quality = VIDEO_QUALITIES.includes(video.quality) ? video.quality : "original";
+    const maxMb = Number(video.max_mb);
+    return {
+        quality,
+        max_mb: Number.isFinite(maxMb) && maxMb > 0 ? maxMb : 8,
+        transcoder_socket: video.transcoder_socket || null,
+        timeout_seconds: Number(video.timeout_seconds) > 0 ? Number(video.timeout_seconds) : 120,
+    };
+}
+
+/**
+ * Video quality for a chat: the first group with that chat_id that sets its
+ * own video_quality, else the config's. Several groups can share a chat (one
+ * per topic); they share the one file too.
+ * @param {string} chatId
+ * @returns {string} "original" or "compressed"
+ */
+function getVideoQualityForChat(chatId) {
+    const own = Object.values(config.groups || {}).find(
+        (g) => String(g?.chat_id) === String(chatId) && VIDEO_QUALITIES.includes(g?.video_quality)
+    );
+    return own ? own.video_quality : getVideoSettings().quality;
+}
+
+if (config.video?.quality && !VIDEO_QUALITIES.includes(config.video.quality)) {
+    console.error(`❌ Invalid video.quality "${config.video.quality}" - expected "original" or "compressed"`);
+    process.exit(1);
+}
+
 function reloadConfig() {
     try {
         const newConfig = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
@@ -330,4 +393,6 @@ module.exports = {
     shouldAlertAnyGroup,
     isLabelAllowed,
     reloadConfig,
+    getVideoSettings,
+    getVideoQualityForChat,
 };
